@@ -1,0 +1,38 @@
+&i2c2 {
+  intake_abs_pressure_sensor: bmp581@46 {
+    compatible = "bosch,bmp581-custom";
+    status = "disabled";
+
+    reg = <0x46>;
+  };
+
+  sensor_flow: sdp32@21 {
+    compatible = "sensirion,sdp3x";
+    status = "disabled";    
+
+    reg = <0x21>;
+  };
+};
+
+&i2c4 {
+  chamber_inlet_abs_pressure_sensor: bmp581@46 {
+    compatible = "bosch,bmp581-custom";
+    status = "disabled";
+
+    reg = <0x46>;
+  };
+};
+
+&pinctrl {
+  // These pins are connected to the GPIOs of the uC and the ground on A2 sense board.
+  // Disable the pins as driving them will result in short circuit.
+  disabled_gpio_pd2 {
+    pinmux = <STM32_PINMUX('D', 2, GPIO)>;  // PD2
+    drive-open-drain; // Use open drain mode to avoid active driving
+  };
+
+  disabled_gpio_pc12 {
+    pinmux = <STM32_PINMUX('C', 12, GPIO)>;  // PC12
+    drive-open-drain; // Use open drain mode to avoid active driving
+  };
+};

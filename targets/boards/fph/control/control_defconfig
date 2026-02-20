@@ -1,0 +1,15 @@
+# Copyright (c) 2017, NXP
+# SPDX-License-Identifier: Apache-2.0
+
+CONFIG_FW_CONTROL=y
+CONFIG_DEVICE_CONFIGURATION_DATA=n
+CONFIG_INIT_SYS_PLL=y
+CONFIG_ARM_MPU=y
+CONFIG_HW_STACK_PROTECTION=y
+CONFIG_PINCTRL=y
+CONFIG_EARLY_INIT=y
+
+# i.MX RT1050 Reference Manual - 14.5
+# Table 14-5. System Clock Frequency Values 
+# Configure DCDC REG3: VDD_SOC Target value to (1.15+0.025)V
+CONFIG_DCDC_VALUE=0x0F

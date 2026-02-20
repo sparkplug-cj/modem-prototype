@@ -1,0 +1,2 @@
+// Node definitions are in boards/<shield>/<board>.overlay.
+// These files are empty but required for the Zephyr build system to recognise shield definitions

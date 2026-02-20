@@ -1,0 +1,99 @@
+/ {
+  pwm {
+    status = "okay";
+  };
+  
+  chamberout_temp_ntc: chamberout_temp_ntc {
+    status = "okay";
+  };  
+
+
+};
+
+&zephyr_udc0 {
+  status = "okay";
+};
+
+&ipc_serial {
+  status = "okay";
+};
+
+&lpi2c3 {
+  status = "okay";
+};
+
+&lpspi1 {
+  status = "okay";
+};
+
+&lpspi_spi_slow {
+  status = "okay";
+};
+
+&lpspi4 {
+  status = "okay";
+};
+
+&data_flash {
+  status = "okay";
+};
+
+&adc1 {
+  status = "okay";
+};
+
+&adc2 {
+  status = "okay";
+};
+
+&flexpwm1_pwm1 {
+  compatible = "nxp,imx-pwm-ext";
+  status = "okay";
+
+  nxp,prescaler = <32>;
+  xbar-config = <&xbar1>;
+  // See &qtmr3_timer0 node
+  qtmr = <&qtmr3>;
+  qtmr-channel = <0>;
+};
+
+&qtmr3_timer0 {
+  compatible = "nxp,imx-tmr-ext";
+  status = "okay";
+
+  mode = "kQTMR_PriSrcRiseEdge";
+  primary-source = "kQTMR_ClockDivide_4";
+  freq = <1000000>;
+};
+
+&gpio4 {
+  gpio4_adc_en {
+    // Enable ADC isolation for control application
+    /delete-property/ output-low;
+    output-high;
+  };
+};
+
+&flexpwm3_pwm3 {
+  compatible = "nxp,imx-pwm-ext";
+  status = "okay";
+
+  nxp,prescaler = <32>;
+  xbar-config = <&xbar1>;
+  // See &qtmr3_timer1 node
+  qtmr = <&qtmr3>;
+  qtmr-channel = <1>;
+};
+
+&qtmr3_timer1 {
+  compatible = "nxp,imx-tmr-ext";
+  status = "okay";
+
+  mode = "kQTMR_PriSrcRiseEdge";
+  primary-source = "kQTMR_ClockDivide_4";
+  freq = <1000000>;
+};
+
+&xbar1 {
+  status = "okay";
+};

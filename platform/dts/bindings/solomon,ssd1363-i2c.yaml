@@ -1,0 +1,5 @@
+description: SSD13363 320x160 OLED controller on I2C bus
+
+compatible: "solomon,ssd1363-ext"
+
+include: ["solomon,ssd1363-common-ext.yaml", "i2c-device.yaml"]

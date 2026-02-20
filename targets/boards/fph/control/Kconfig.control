@@ -1,0 +1,7 @@
+# Copyright (c) 2017, NXP
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_REVISION_A4
+    bool "Control A4 Board"
+    select SOC_SERIES_IMX_RT
+    select SOC_PART_NUMBER_MIMXRT1052CVL5B

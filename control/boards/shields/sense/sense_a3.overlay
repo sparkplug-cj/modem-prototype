@@ -1,0 +1,94 @@
+/*
+ * Copyright (c) Fisher & Paykel Healthcare. All Rights Reserved.
+ *
+ * Devicetree overlay for Waitara Sense A3 shield for the control board. This overlay enables the nodes
+ * relevant for the control application.
+ */
+
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+  aliases {
+    dt-rtc = &rtc;
+  };
+};
+
+&lpi2c1 {
+  status = "okay";
+};
+
+&humidity_sensor {
+  status = "okay";
+};
+
+&rtc {
+  status = "okay";
+};
+
+&lpi2c4 {
+  status = "okay";
+};
+
+&pressure_sensor {
+  status = "okay";
+};
+
+&lpspi3 {
+  status = "okay";
+};
+
+&ssd1363 {
+  status = "okay";
+};
+
+&buttons {
+  status = "okay";
+
+  polling-mode;
+};
+
+&ui_button_therapy_b {
+  zephyr,code = <INPUT_BTN_1>;
+};
+
+&ui_button_therapy_a {
+  zephyr,code = <INPUT_BTN_2>;
+};
+
+&ui_button_down {
+  zephyr,code = <INPUT_BTN_3>;
+};
+
+&ui_button_up {
+  zephyr,code = <INPUT_BTN_4>;
+};  
+
+&ui_button_ok {
+  zephyr,code = <INPUT_BTN_5>;
+};  
+
+&ui_button_menu {
+  zephyr,code = <INPUT_BTN_6>;
+};  
+
+&longpress {
+  input-codes = <INPUT_BTN_2>, 
+                <INPUT_BTN_1>,
+                <INPUT_BTN_3>,
+                <INPUT_BTN_4>, 
+                <INPUT_BTN_5>, 
+                <INPUT_BTN_6>;
+  short-codes = <INPUT_KEY_B>, 
+                <INPUT_KEY_A>,
+                <INPUT_KEY_C>,
+                <INPUT_KEY_D>, 
+                <INPUT_KEY_E>, 
+                <INPUT_KEY_F>;
+  long-codes = <INPUT_KEY_V>, 
+               <INPUT_KEY_U>,
+               <INPUT_KEY_W>,
+               <INPUT_KEY_X>, 
+               <INPUT_KEY_Y>, 
+               <INPUT_KEY_Z>;
+  long-delay-ms = <3000>; // 3 second for long press
+};

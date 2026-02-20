@@ -1,0 +1,82 @@
+include: display-controller.yaml
+
+properties:
+  use-internal-iref:
+    type: boolean
+    description: |
+      When external IREF is selected, the magnitude of IREF is controlled by
+      the value of resistor, which is connected between IREF pin and VSS.
+      When internal IREF is selected, the IREF pin should be kept NC.
+
+  reset-period:
+    type: int
+    default: 4
+    description: |
+      Phase 1 period of driving an OLED pixel. Choose from 1-15 DCLK(s)
+
+  precharge-period:
+    type: int
+    default: 7
+    description: |
+      Phase 2 period of driving an OLED pixel. Choose from 1-15 DCLK(s)
+
+  front-clock-divider:
+    type: int
+    default: 0
+    description: |
+      Front clock divider. Ratio is from 1 to 16 with default ratio = 1
+      DCLK = Fosc / *D*
+
+  oscillator-frequency:
+    type: int
+    default: 6
+    description: |
+      Oscillator frequency. Frequency increases as level increases.
+      DCLK = *Fosc* / D
+
+  second-precharge-period:
+    type: int
+    default: 8
+    description: Phase 3 period of driving an OLED pixel. Choose from 1-15 DCLK(s)
+
+  precharge-voltage-config-ext-cap:
+    type: boolean
+    description: |
+      External capacitance mode is enabled when Vp pin 
+      is connected to an external capacitor to GND in application.
+      Default when Vp pin is float in application
+
+  precharge-voltage:
+    type: int
+    default: 7
+    description: |
+      Precharge voltage level. Choose from 0-31
+        0: 0.10 x Vcc
+        7: 0.193 x Vcc
+        31: 0.5133 x Vcc
+      Value MUST be smaller than Vcomh voltage
+
+  vcomh-voltage:
+    type: int
+    default: 4
+    description: |
+      Precharge voltage level. Choose from 0-7
+        0: 0.72 x Vcc
+        4: 0.80 x Vcc
+        7: 0.86 x Vcc
+      Value MUST be smaller than precharge voltage
+
+  reset-gpios:
+    type: phandle-array
+    description: RESET pin.
+
+      The RESET pin of SSD1363 is active low.
+      If connected directly the MCU pin should be configured
+      as active low.
+
+  ready-time-ms:
+    type: int
+    default: 100
+    description: |
+      Time it takes for the device from power up to become responsive and
+      accepting commands. Defaults to 100ms if not provided.

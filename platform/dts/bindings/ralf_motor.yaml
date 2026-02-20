@@ -1,0 +1,6 @@
+description: |
+    This binding provides resources required to use ralf motor
+
+compatible: "ralf-motor"
+
+include: [spi-device.yaml]

@@ -1,0 +1,23 @@
+# Copyright (c) 2021 Nordic Semiconductor ASA
+# SPDX-License-Identifier: Apache-2.0
+
+manifest:
+  self:
+    west-commands: west-commands.yml
+
+  remotes:
+    - name: jonathan-thomson
+      url-base: https://github.com/jonathan-thomson
+
+  projects:
+    - name: zephyr
+      remote: jonathan-thomson
+      repo-path: zephyr.git
+      revision: e72fd66378ccdef18ca864c7bc23a88604f695ed
+      import:
+        path-prefix: thirdparty/zephyrproject
+        name-allowlist:
+          - cmsis_6
+          - hal_nxp
+          - picolibc
+          - segger

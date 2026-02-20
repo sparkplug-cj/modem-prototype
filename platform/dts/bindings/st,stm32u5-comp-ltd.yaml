@@ -1,0 +1,62 @@
+
+description: |
+  ST STM32U5 Comparator
+
+compatible: "st,stm32u5-comp-ltd"
+
+include: [pinctrl-device.yaml, reset-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  interrupts:
+    required: true
+  
+  resets:
+    required: true
+
+  input-plus:
+    type: string
+    enum:
+      - "IO2"
+      # Other options not implemented
+
+  input-minus:
+    type: string
+    enum:
+      - "VREFINT"
+      - "VREFINT_1_2"
+      - "VREFINT_3_4"
+      # Other options not implemented
+
+  output-polarity:
+    type: string
+    enum:
+      - "NON_INVERTED"
+      # Other options not implemented
+
+  hysteresis:
+    type: string
+    enum:
+      - "NONE"
+      - "LOW"
+      # Other options not implemented
+
+  power-mode:
+    type: string
+    enum:
+      - "HIGH_SPEED"
+      # Other options not implemented
+
+  interrupt-mode:
+    type: string
+    enum:
+      - "RISING_EDGE"
+      # Other options not implemented

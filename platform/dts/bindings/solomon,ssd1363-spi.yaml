@@ -1,0 +1,11 @@
+description: SSD13363 320x160 OLED controller on SPI bus
+
+compatible: "solomon,ssd1363-ext"
+
+include: ["solomon,ssd1363-common-ext.yaml", "spi-device.yaml"]
+
+properties:
+  data-cmd-gpios:
+    type: phandle-array
+    required: true
+    description: D/C# pin.

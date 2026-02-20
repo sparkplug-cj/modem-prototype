@@ -1,0 +1,145 @@
+/ {
+  chosen {
+    zephyr,display = &ssd1363;
+  };
+  
+  buttons: buttons {
+    compatible = "gpio-keys";
+    status = "disabled";
+
+    debounce-interval-ms= <30>;
+
+    ui_button_therapy_b: ui_button_d1 {
+      gpios = < &gpio2 31 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_15
+      label = "Therapy B button";
+    };
+    ui_button_therapy_a: ui_button_d2 {
+      gpios = < &gpio2 30 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_14
+      label = "Therapy A button";
+    };
+    ui_button_down: ui_button_d3 {
+      gpios = < &gpio2 25 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_09
+      label = "Down button";
+    };
+    ui_button_up: ui_button_d4 {
+      gpios = < &gpio2 26 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_10
+      label = "Up button";
+    };  
+    ui_button_ok: ui_button_d5 {
+      gpios = < &gpio2 24 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_08
+      label = "Ok button";
+    };  
+    ui_button_menu: ui_button_d6 {
+      gpios = < &gpio2 23 (GPIO_PULL_UP|GPIO_ACTIVE_LOW) >; //GPIO_B1_07
+      label = "Menu button";
+    };  
+  };
+  
+  longpress: longpress {
+    compatible = "zephyr,input-longpress";
+    input = <&buttons>;
+    input-codes = <>;
+    long-codes = <>;
+    long-delay-ms = <3000>;
+  };
+};
+
+//
+// Extends nodes under /soc/...
+// 
+
+&gpio2 {
+  ui_button_d: ui_button_d {
+    gpio-hog;
+    gpios = <23 GPIO_ACTIVE_LOW>,
+            <24 GPIO_ACTIVE_LOW>,
+            <25 GPIO_ACTIVE_LOW>,
+            <26 GPIO_ACTIVE_LOW>,
+            <30 GPIO_ACTIVE_LOW>,
+            <31 GPIO_ACTIVE_LOW>;
+    input;
+  };
+};
+
+&lpi2c1 {
+  rtc: rtc@32 {
+    compatible = "epson,rx8900ce";
+    status = "disabled";
+
+    reg = <0x32>;
+  };
+
+  humidity_sensor: i2c_sensor@44 {
+    compatible = "sensirion,sht3xd";
+    status = "disabled";
+
+    reg = <0x44>;
+  };
+};
+
+&lpi2c4 {
+  pressure_sensor: i2c_sensor@6c {
+    compatible = "tesm62c1";
+    status = "disabled";
+
+    reg = <0x6c>;
+  };
+};
+
+&iomuxc {
+  pinctrl {
+    pinmux_adc1: pinmux_adc1 {
+      group1 {
+        pinmux = <&iomuxc_gpio_ad_b1_06_adc1_in11>, // VGPIO (Modem)
+                 <&iomuxc_gpio_ad_b1_08_adc1_in13>; // Flow
+        bias-disable;
+        drive-strength = "r0-6";
+        slew-rate = "slow";
+        nxp,speed = "100-mhz";
+      };
+    };
+  };
+};
+
+&lpspi3 {
+  pinctrl-0 = <&pinmux_lpspi3>;
+  pinctrl-names = "default";
+
+  cs-gpios = <&gpio1 4 GPIO_ACTIVE_LOW>;
+
+  ssd1363: ssd1363@0 {
+    compatible = "solomon,ssd1363-ext";
+    status = "disabled";
+
+    reg = <0x0>;
+
+    spi-max-frequency = <5000000>;
+    width = <256>;
+    height = <128>;
+    data-cmd-gpios = <&gpio2 14 GPIO_ACTIVE_HIGH>;
+    reset-gpios = <&gpio2 13 GPIO_ACTIVE_LOW>;
+    precharge-voltage-config-ext-cap;
+  };
+};
+
+&adc1 {
+  adc_flow: channel@d {
+    reg = <13>;
+    zephyr,gain = "ADC_GAIN_1";
+    zephyr,reference = "ADC_REF_INTERNAL";
+    zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+    zephyr,resolution = <12>;
+    
+    // See &pinmux_adc1 for pinctrl config
+  };
+
+  adc_vgpio: channel@b {
+    reg = <11>;
+    zephyr,gain = "ADC_GAIN_1";
+    zephyr,reference = "ADC_REF_INTERNAL";
+    zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+    zephyr,resolution = <12>;
+
+    // See &pinmux_adc1 for pinctrl config
+  };
+};

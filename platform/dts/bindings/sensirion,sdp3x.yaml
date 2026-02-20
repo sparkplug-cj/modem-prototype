@@ -1,0 +1,9 @@
+# Sensirion SDP3X digital pressure sensor
+# Copyright (c) Fisher & Paykel Healthcare. All Rights Reserved.
+
+description:
+  Sensirion SDP3X digital pressure sensor accessed through I2C bus
+
+compatible: "sensirion,sdp3x"
+
+include: [i2c-device.yaml]

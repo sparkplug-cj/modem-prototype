@@ -1,0 +1,11 @@
+# Bosch BMP581 barometric pressure sensor
+# Copyright (c) Fisher & Paykel Healthcare. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0 
+ 
+
+description: |
+    Bosch BMP581 barometric pressure sensor accessed through I2C bus
+
+compatible: "bosch,bmp581-custom"
+
+include: [i2c-device.yaml, "bosch,bmp581.yaml"]

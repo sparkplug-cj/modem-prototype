@@ -1,0 +1,9 @@
+board:
+  name: control
+  vendor: fph
+  revision:
+    format: custom
+    revisions:
+      - name: a4
+  socs:
+    - name: mimxrt1052

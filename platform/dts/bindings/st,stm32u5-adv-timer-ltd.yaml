@@ -1,0 +1,26 @@
+description: |
+  ST STM32U5 Advanced Timer
+
+  Limited implementation of an advanced timer driver that supports use with Waitara protection system.
+
+compatible: "st,stm32u5-adv-timer-ltd"
+
+include: [pinctrl-device.yaml, reset-device.yaml, base.yaml]
+
+properties:
+  reg:
+    required: true
+
+  pinctrl-0:
+    required: true
+
+  pinctrl-names:
+    required: true
+
+  interrupts:
+    required: true
+  
+  resets:
+    required: true
+
+# Currently hard coding all other properties

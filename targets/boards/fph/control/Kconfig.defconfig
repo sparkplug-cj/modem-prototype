@@ -1,0 +1,26 @@
+# Copyright (c) 2017, NXP
+# SPDX-License-Identifier: Apache-2.0
+#
+# Copyright (c) Fisher & Paykel Healthcare. All Rights Reserved.
+# Derived from mimxrt1050_evk.dts from zephyrproject/zephyr.
+# Change notice: Adapt for Waitara
+
+if BOARD_REVISION_A4
+
+config BOARD
+    default "mimxrt1050_fph_control_a4" if BOARD_REVISION_A4
+
+config FW_CONTROL
+    bool "control firmware"
+    default true
+    help
+    Hints that the Firmware is for control MCU
+
+config EARLY_INIT
+    bool "Enables early init"
+    default true
+    help
+      Used as a guard to enable running of routines that should occur before default Zephyr initialisation.
+      i.e. FlexRAM reconfiguration.
+
+endif # BOARD_REVISION_A4

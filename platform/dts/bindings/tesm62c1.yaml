@@ -1,0 +1,9 @@
+# TE SM62C1 gauge pressure sensor
+# SPDX-License-Identifier: Apache-2.0 
+
+description:
+  TE SM62C1 gauge pressure sensor accessed through I2C bus
+
+compatible: "tesm62c1"
+
+include: [i2c-device.yaml]

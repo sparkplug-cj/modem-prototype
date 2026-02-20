@@ -1,0 +1,2 @@
+// Keep empty file to let devicetree generation detect the control board. 
+// Devicetree specifications live in overlay file for the specific revision.
