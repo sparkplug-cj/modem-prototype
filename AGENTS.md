@@ -15,7 +15,7 @@ Follow this guide first, then follow task-specific user instructions.
 
 ## Environment and Setup
 
-- Required tools: Python 3.10+, `west`, CMake, Ninja, `dtc`, Zephyr SDK.
+- Required tools: Python 3.10+, `west`, CMake, Ninja, `dtc`, Zephyr SDK (zephyr-sdk-0.17.2).
 - Recommended venv setup:
   - `python3 -m venv .venv`
   - `. .venv/bin/activate`
@@ -85,7 +85,7 @@ If a future Catch2 test tree appears, prefer its local README/build script for e
 - The following software units live in `platform/src`:
   - Components shared between multiple applications.
   - Wrappers for third-party components.
-  - Harware abstraction.
+  - Hardware abstraction.
   - Zephyr abstraction.
 - App config belongs in `control/prj.conf`.
 - App-specific shield overlays belong in `control/boards/shields/<shield>/<shield>.overlay`.
@@ -115,10 +115,8 @@ If a future Catch2 test tree appears, prefer its local README/build script for e
 
 - Macros/constants: `UPPER_SNAKE_CASE` (existing pattern in board code).
 - Kconfig symbols: `CONFIG_*` names, uppercase with underscores.
-- Local scoped C variables: `lowerCamelCase`.
-- Module scoped C variables `mUpperCamelCase`.
-- Private C functions `UpperCamelCase`.
-- Public C functions (Prefix with 3-4 character module name abbreviation) `PRE_UpperCamelCase`.
+- C variables: `lowerCamelCase`.
+- C functions `UpperCamelCase`.
 - File names:
   - C/H files and overlays usually lowercase with underscores.
   - Board/shield naming follows Zephyr board qualifiers (`control@a4`, `sense_a3`).
