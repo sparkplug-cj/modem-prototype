@@ -4,10 +4,6 @@
 >
 > **Scope:** minimal “it builds + it talks” checklist for the **control@a4 + sense_a3** configuration.
 
-## Notes
-
-This doc is intentionally focused on the *bring-up* steps and expected outcomes. Keep workflow/process notes out of the repo; capture those in private notes instead.
-
 ## One-time setup
 
 From the repo root:
