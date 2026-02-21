@@ -48,7 +48,7 @@ Notes:
 
 ## Bring-up / acceptance
 
-See: `docs/bringup/acceptance.md` (living checklist + workflow conventions).
+See: `docs/bringup/acceptance.md` (living checklist).
 
 ## Cleaning
 
