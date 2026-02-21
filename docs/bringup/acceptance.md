@@ -4,35 +4,9 @@
 >
 > **Scope:** minimal “it builds + it talks” checklist for the **control@a4 + sense_a3** configuration.
 
-## Workflow conventions (repo hygiene)
+## Notes
 
-- **One PR per functional increment.** Keep PRs small and reviewable.
-- **Always reference the tracking issue in the PR description** (use GitHub keywords), e.g.:
-  - `Fixes #9`
-- **No self-approval.** The author (CJ) does not approve their own PRs; get another reviewer.
-- Prefer **follow-up PRs** over stuffing unrelated changes into an existing PR.
-
-## Environment
-
-### Python / west
-
-Use the shared Zephyr virtualenv:
-
-```bash
-. /home/node/.openclaw/workspace/tools/zephyr-venv/bin/activate
-west --version
-```
-
-(If you’re using another venv, ensure it has at least `west` and `pyelftools` installed.)
-
-### Zephyr SDK env vars
-
-If your Zephyr SDK is not installed in a standard location, set:
-
-```bash
-export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/path/to/zephyr-sdk-0.17.x
-```
+This doc is intentionally focused on the *bring-up* steps and expected outcomes. Keep workflow/process notes out of the repo; capture those in private notes instead.
 
 ## One-time setup
 
