@@ -46,6 +46,10 @@ west build control -p auto -b control@a4 --shield sense_a3 -d control/build
 Notes:
 - You do **not** need to export `BOARD_ROOT`/`DTS_ROOT` env vars; the repo CMake wiring sets the required roots.
 
+## Bring-up / acceptance
+
+See: `docs/bringup/acceptance.md` (living checklist + workflow conventions).
+
 ## Cleaning
 
 To clean the existing build directory:
