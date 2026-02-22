@@ -1,4 +1,4 @@
-zephyr_library_named(modem_board)
+# Application-mode unit: add sources/includes to the app target
 
-zephyr_library_sources(modem-board.c)
-zephyr_library_include_directories(inc)
+target_sources(app PRIVATE modem-board.c)
+target_include_directories(app PRIVATE inc)
