@@ -35,7 +35,9 @@ If flashing fails, capture:
 
 ## RTT shell (SEGGER)
 
-This project is expected to support a **shell over RTT** for bring-up. One common way to attach is:
+This project supports **Zephyr shell over SEGGER RTT**.
+
+One common way to attach is:
 
 1. Start a J-Link session (device name varies by MCU; adjust as needed):
 
@@ -50,11 +52,31 @@ This project is expected to support a **shell over RTT** for bring-up. One commo
    rtt terminal 0
    ```
 
-3. You should see boot logs and be able to type Zephyr shell commands.
+3. You should see boot logs.
+
+4. Open the shell channel (if you don’t see a shell prompt on terminal 0):
+
+   ```text
+   rtt terminal 1
+   ```
+
+You should see a prompt like:
+
+```text
+rtt:ctrl>
+```
+
+Verify the shell is responsive:
+
+```text
+help
+kernel version
+kernel uptime
+```
 
 Troubleshooting notes:
-- If `rtt start` can’t find the control block, ensure the firmware is running and built with RTT console/log backend enabled.
-- If multiple channels exist, try `rtt terminal 1`, etc.
+- If RTT can’t find the control block, ensure the firmware is running and built with RTT enabled.
+- If you see logs but no prompt, press Enter a couple times and try `rtt terminal 1`.
 
 ## Acceptance checklist
 
@@ -63,4 +85,4 @@ Troubleshooting notes:
 - [ ] `control/build/zephyr/zephyr.elf` (and `.hex`/`.bin` as applicable) produced
 - [ ] `west flash -d control/build` succeeds on target hardware
 - [ ] RTT attaches and shows logs
-- [ ] Shell is responsive (run `help` and one simple command)
+- [ ] Shell prompt appears and is responsive (`help`, `kernel version`, `kernel uptime`)
