@@ -1,4 +1,4 @@
-#include "modem_board.h"
+#include <modem-board.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
