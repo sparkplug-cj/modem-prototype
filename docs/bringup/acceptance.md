@@ -4,36 +4,6 @@
 >
 > **Scope:** minimal “it builds + it talks” checklist for the **control@a4 + sense_a3** configuration.
 
-## Workflow conventions (repo hygiene)
-
-- **One PR per functional increment.** Keep PRs small and reviewable.
-- **Always reference the tracking issue in the PR description** (use GitHub keywords), e.g.:
-  - `Fixes #3`
-- **No self-approval.** The author (CJ) does not approve their own PRs; get another reviewer.
-- Prefer **follow-up PRs** over stuffing unrelated changes into an existing PR.
-
-## Environment
-
-### Python / west
-
-Use the shared Zephyr virtualenv:
-
-```bash
-. /home/node/.openclaw/workspace/tools/zephyr-venv/bin/activate
-west --version
-```
-
-(If you’re using another venv, ensure it has at least `west` and `pyelftools` installed.)
-
-### Zephyr SDK env vars
-
-If your Zephyr SDK is not installed in a standard location, set:
-
-```bash
-export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
-export ZEPHYR_SDK_INSTALL_DIR=/path/to/zephyr-sdk-0.17.x
-```
-
 ## One-time setup
 
 From the repo root:
@@ -65,25 +35,38 @@ If flashing fails, capture:
 
 ## RTT shell (SEGGER)
 
-This project supports a **Zephyr shell over SEGGER RTT** (issue #3 baseline).
+This project supports **Zephyr shell over SEGGER RTT**.
 
-### Attach (J-Link RTT Viewer)
+One common way to attach is:
 
-1. Flash and reset the target so the firmware is running.
-2. Open **J-Link RTT Viewer**.
-3. Connect to the target (device name varies by MCU; use the same device name as your flash/debug setup).
-4. Open **Terminal 0** for logs.
-5. Open **Terminal 1** for the shell.
+1. Start a J-Link session (device name varies by MCU; adjust as needed):
 
-You should see boot logs and a prompt like:
+   ```bash
+   JLinkExe -if SWD -speed 4000 -autoconnect 1
+   ```
+
+2. In the J-Link prompt, start RTT:
+
+   ```text
+   rtt start
+   rtt terminal 0
+   ```
+
+3. You should see boot logs.
+
+4. Open the shell channel (if you don’t see a shell prompt on terminal 0):
+
+   ```text
+   rtt terminal 1
+   ```
+
+You should see a prompt like:
 
 ```text
-rtt:ctrl> 
+rtt:ctrl>
 ```
 
-### Verify shell is responsive
-
-In the RTT terminal, run:
+Verify the shell is responsive:
 
 ```text
 help
@@ -91,15 +74,9 @@ kernel version
 kernel uptime
 ```
 
-Expected:
-- `help` prints the list of available commands
-- `kernel version` prints the Zephyr version string
-- `kernel uptime` returns a monotonically increasing uptime
-
-Troubleshooting:
-- If RTT attaches but you see logs and **no prompt**, press Enter a couple times.
-- If RTT viewer can’t find the control block, ensure the firmware is running and built with RTT enabled.
-- If you don’t see the prompt, confirm you’re on **Terminal 1** (this project places the shell on RTT buffer 1 to avoid conflicting with the log backend on buffer 0).
+Troubleshooting notes:
+- If RTT can’t find the control block, ensure the firmware is running and built with RTT enabled.
+- If you see logs but no prompt, press Enter a couple times and try `rtt terminal 1`.
 
 ## Acceptance checklist
 
