@@ -78,6 +78,35 @@ Troubleshooting notes:
 - If RTT can’t find the control block, ensure the firmware is running and built with RTT enabled.
 - If you see logs but no prompt, press Enter a couple times and try `rtt terminal 1`.
 
+## Modem GPIO control (Iteration 1)
+
+This firmware exposes **board-specific modem power/reset primitives** via shell commands.
+
+Commands:
+
+```text
+modem status
+modem power on
+modem power off
+modem power cycle
+modem reset
+```
+
+Manual acceptance steps:
+
+- [ ] Run `modem status` and confirm it prints the three control lines:
+  - `MODEM_3V8_EN`
+  - `MODEM_PWR_ON_N`
+  - `MODEM_nRST`
+- [ ] Run `modem power on` and confirm:
+  - MODEM 3V8 rail is enabled (measure 3V8 on the modem rail if accessible)
+  - modem begins booting (e.g., UART activity / status LED, depending on module)
+- [ ] Run `modem reset` and confirm the modem reboots
+- [ ] Run `modem power off` and confirm the modem rail is disabled
+
+> Timing notes: the PWR_ON_N pulse widths are currently conservative defaults. Confirm the module’s
+> required timings (on/off pulse, rail settle time) and adjust if needed.
+
 ## Acceptance checklist
 
 - [ ] `west update` completes cleanly

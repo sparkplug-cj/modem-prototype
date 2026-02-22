@@ -18,6 +18,10 @@
   status = "okay";
 };
 
+&modem_uart {
+  status = "okay";
+};
+
 &lpi2c3 {
   status = "okay";
 };
