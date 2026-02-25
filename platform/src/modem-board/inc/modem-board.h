@@ -1,6 +1,6 @@
 #pragma once
 
-#include <zephyr/kernel.h>
+#include <errno.h>
 
 #ifdef __cplusplus
 extern "C" {
