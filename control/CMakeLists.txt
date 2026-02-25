@@ -25,7 +25,6 @@ target_sources(app PRIVATE
 # Platform units
 target_link_libraries(app PRIVATE platform_src_modem_board_obj)
 target_link_libraries(app PRIVATE platform_src_modem_shell_obj)
-# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../platform platform)
 
 mark_zephyr_system_includes(app)
 target_link_libraries(app PRIVATE zephyr_interface)

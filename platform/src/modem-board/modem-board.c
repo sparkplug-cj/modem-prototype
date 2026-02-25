@@ -4,6 +4,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/kernel.h>
 
 LOG_MODULE_REGISTER(modem_board, LOG_LEVEL_INF);
 
@@ -21,17 +22,17 @@ LOG_MODULE_REGISTER(modem_board, LOG_LEVEL_INF);
 
 static const struct gpio_dt_spec rail_en = GPIO_DT_SPEC_GET(MODEM_NODE, modem_3v8_en_gpios);
 static const struct gpio_dt_spec pwr_on_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_pwr_on_n_gpios);
-static const struct gpio_dt_spec nrst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_nrst_n_gpios);
+static const struct gpio_dt_spec rst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_nrst_n_gpios);
 
 /*
  * NOTE: Exact modem timing requirements need to be confirmed.
  * These defaults are based on common cellular modem patterns.
  */
-static const k_timeout_t T_RAIL_SETTLE = K_MSEC(10);
-static const k_timeout_t T_PWR_ON_PULSE = K_MSEC(250);
-static const k_timeout_t T_PWR_OFF_PULSE = K_MSEC(1500);
-static const k_timeout_t T_POST_ON_DELAY = K_MSEC(100);
-static const k_timeout_t T_RESET_PULSE = K_MSEC(200);
+static const int T_RAIL_SETTLE_MS = 10;
+static const int T_PWR_ON_PULSE_MS = 250;
+static const int T_PWR_OFF_PULSE_MS = 1500;
+static const int T_POST_ON_DELAY_MS = 100;
+static const int T_RESET_PULSE_MS = 200;
 
 int modem_board_init(void)
 {
@@ -43,8 +44,8 @@ int modem_board_init(void)
 		LOG_ERR("pwr_on_n gpio port not ready");
 		return -ENODEV;
 	}
-	if (!device_is_ready(nrst_n.port)) {
-		LOG_ERR("nrst_n gpio port not ready");
+	if (!device_is_ready(rst_n.port)) {
+		LOG_ERR("rst_n gpio port not ready");
 		return -ENODEV;
 	}
 
@@ -63,20 +64,20 @@ int modem_board_init(void)
 		return ret;
 	}
 
-	/* nrst_n may be configured by a gpio-hog on this board; just drive it to asserted state. */
-	(void)gpio_pin_set_dt(&nrst_n, 1);
+	/* rst_n may be configured by a gpio-hog on this board; just drive it to asserted state. */
+	(void)gpio_pin_set_dt(&rst_n, 1);
 
 	return 0;
 }
 
-static int pwr_on_n_pulse(k_timeout_t pulse)
+static int pwr_on_n_pulse(int pulse_ms)
 {
 	int ret;
 	ret = gpio_pin_set_dt(&pwr_on_n, 1); /* assert (active low) */
 	if (ret != 0) {
 		return ret;
 	}
-	k_sleep(pulse);
+	k_sleep(K_MSEC(pulse_ms));
 	ret = gpio_pin_set_dt(&pwr_on_n, 0); /* deassert */
 	return ret;
 }
@@ -86,22 +87,22 @@ int modem_board_power_on(void)
 	int ret;
 
 	/* Assert reset while sequencing power. */
-	(void)gpio_pin_set_dt(&nrst_n, 1);
+	(void)gpio_pin_set_dt(&rst_n, 1);
 
 	ret = gpio_pin_set_dt(&rail_en, 1);
 	if (ret != 0) {
 		return ret;
 	}
-	k_sleep(T_RAIL_SETTLE);
+	k_sleep(K_MSEC(T_RAIL_SETTLE_MS));
 
-	ret = pwr_on_n_pulse(T_PWR_ON_PULSE);
+	ret = pwr_on_n_pulse(T_PWR_ON_PULSE_MS);
 	if (ret != 0) {
 		return ret;
 	}
 
-	k_sleep(T_POST_ON_DELAY);
+	k_sleep(K_MSEC(T_POST_ON_DELAY_MS));
 	/* Release reset */
-	ret = gpio_pin_set_dt(&nrst_n, 0);
+	ret = gpio_pin_set_dt(&rst_n, 0);
 	return ret;
 }
 
@@ -110,13 +111,13 @@ int modem_board_power_off(void)
 	int ret;
 
 	/* Optionally request modem shutdown via long PWR_ON_N pulse. */
-	ret = pwr_on_n_pulse(T_PWR_OFF_PULSE);
+	ret = pwr_on_n_pulse(T_PWR_OFF_PULSE_MS);
 	if (ret != 0) {
 		return ret;
 	}
 
 	/* Assert reset, then remove rail. */
-	(void)gpio_pin_set_dt(&nrst_n, 1);
+	(void)gpio_pin_set_dt(&rst_n, 1);
 	k_sleep(K_MSEC(20));
 	ret = gpio_pin_set_dt(&rail_en, 0);
 	return ret;
@@ -136,12 +137,12 @@ int modem_board_power_cycle(void)
 int modem_board_reset_pulse(void)
 {
 	int ret;
-	ret = gpio_pin_set_dt(&nrst_n, 1);
+	ret = gpio_pin_set_dt(&rst_n, 1);
 	if (ret != 0) {
 		return ret;
 	}
-	k_sleep(T_RESET_PULSE);
-	ret = gpio_pin_set_dt(&nrst_n, 0);
+	k_sleep(K_MSEC(T_RESET_PULSE_MS));
+	ret = gpio_pin_set_dt(&rst_n, 0);
 	return ret;
 }
 
@@ -149,9 +150,9 @@ void modem_board_status_print(void)
 {
 	int rail = gpio_pin_get_dt(&rail_en);
 	int pwr = gpio_pin_get_dt(&pwr_on_n);
-	int rst = gpio_pin_get_dt(&nrst_n);
+	int rst = gpio_pin_get_dt(&rst_n);
 
-	LOG_INF("MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_nRST=%d", rail, pwr, rst);
+	LOG_INF("MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d", rail, pwr, rst);
 }
 
 static int modem_board_sys_init(void)
