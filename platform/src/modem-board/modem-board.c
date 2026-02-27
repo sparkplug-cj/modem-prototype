@@ -64,8 +64,12 @@ int modem_board_init(void)
 		return ret;
 	}
 
-	/* rst_n may be configured by a gpio-hog on this board; just drive it to asserted state. */
-	(void)gpio_pin_set_dt(&rst_n, 1);
+	/* Configure reset as output and start asserted (active-low). */
+	ret = gpio_pin_configure_dt(&rst_n, GPIO_OUTPUT_ACTIVE);
+	if (ret != 0) {
+		LOG_ERR("Failed to configure rst_n: %d", ret);
+		return ret;
+	}
 
 	return 0;
 }
