@@ -49,7 +49,7 @@ int modem_board_init(void)
 		return -ENODEV;
 	}
 
-	/* Default safe state: rail off, PWR_ON_N deasserted, reset asserted (if already configured). */
+	/* Default safe state: rail off, PWR_ON_N deasserted, reset deasserted. */
 	int ret;
 
 	ret = gpio_pin_configure_dt(&rail_en, GPIO_OUTPUT_INACTIVE);
@@ -64,8 +64,8 @@ int modem_board_init(void)
 		return ret;
 	}
 
-	/* Configure reset as output and start asserted (active-low). */
-	ret = gpio_pin_configure_dt(&rst_n, GPIO_OUTPUT_ACTIVE);
+	/* Configure reset as output and start deasserted (active-low). */
+	ret = gpio_pin_configure_dt(&rst_n, GPIO_OUTPUT_INACTIVE);
 	if (ret != 0) {
 		LOG_ERR("Failed to configure rst_n: %d", ret);
 		return ret;
@@ -90,8 +90,7 @@ int modem_board_power_on(void)
 {
 	int ret;
 
-	/* Assert reset while sequencing power. */
-	(void)gpio_pin_set_dt(&rst_n, 1);
+	/* Avoid using RESET_IN_N for normal bring-up; prefer power-cycle via rail + PWR_ON_N. */
 
 	ret = gpio_pin_set_dt(&rail_en, 1);
 	if (ret != 0) {
@@ -105,9 +104,7 @@ int modem_board_power_on(void)
 	}
 
 	k_sleep(K_MSEC(T_POST_ON_DELAY_MS));
-	/* Release reset */
-	ret = gpio_pin_set_dt(&rst_n, 0);
-	return ret;
+	return 0;
 }
 
 int modem_board_power_off(void)
@@ -120,9 +117,7 @@ int modem_board_power_off(void)
 		return ret;
 	}
 
-	/* Assert reset, then remove rail. */
-	(void)gpio_pin_set_dt(&rst_n, 1);
-	k_sleep(K_MSEC(20));
+	/* Remove rail. */
 	ret = gpio_pin_set_dt(&rail_en, 0);
 	return ret;
 }
