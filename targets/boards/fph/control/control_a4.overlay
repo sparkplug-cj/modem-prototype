@@ -37,6 +37,14 @@
   zephyr,user {
     io-channels =      <&adc1 15    &adc1 8         &adc1 13 &adc1 14    &adc2 1    &adc2 2    &adc2 3    &adc1 0  &adc1 9 &adc2 4>;
     io-channel-names = "rail_12v5", "rail_prot3v3", "flow",  "rail_38v", "t_eoh_a", "t_eoh_b", "t_eoh_c", "t_amb", "t_hp", "t_cham_out";
+
+    /*
+     * Modem board-specific power/control pins.
+     * (Application code should prefer these /zephyr,user properties to keep naming modem-agnostic.)
+     */
+    modem-3v8-en-gpios = <&gpio4 0 GPIO_ACTIVE_HIGH>; /* GPIO_EMC_00 */
+    modem-pwr-on-n-gpios = <&gpio2 22 GPIO_ACTIVE_LOW>; /* GPIO_B1_06 (PWER_ON_N) */
+    modem-nrst-n-gpios = <&gpio4 9 GPIO_ACTIVE_LOW>; /* GPIO_EMC_09 (RESET_IN_N) */
   };
 
 	gpios {
@@ -256,6 +264,7 @@
     output-low;
   };
 
+  // MODEM_nRST (RESET_IN_N) - active low
   gpio4_modem_nrst {
     gpio-hog;
     gpios = <9 GPIO_ACTIVE_LOW>;
@@ -365,6 +374,41 @@
 
       lpuart8_rts_pin {
         pinmux = <&iomuxc_gpio_sd_b0_03_lpuart8_rts_b>;
+        drive-strength = "r0-3";
+        nxp,speed = "100-mhz";
+        slew-rate = "slow";
+      };
+    };
+
+    /* Modem UART on Control A4: LPUART3 (GPIO_EMC_13..16) */
+    pinmux_lpuart3: pinmux_lpuart3 {
+      lpuart3_tx_pin {
+        pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>;
+        drive-strength = "r0-3";
+        nxp,speed = "100-mhz";
+        slew-rate = "slow";
+      };
+
+      lpuart3_rx_pin {
+        pinmux = <&iomuxc_gpio_emc_14_lpuart3_rx>;
+        bias-pull-up;
+        bias-pull-up-value = "47k";
+        drive-strength = "disabled";
+        nxp,speed = "100-mhz";
+        slew-rate = "slow";
+      };
+
+      lpuart3_cts_pin {
+        pinmux = <&iomuxc_gpio_emc_15_lpuart3_cts_b>;
+        bias-pull-up;
+        bias-pull-up-value = "47k";
+        drive-strength = "disabled";
+        nxp,speed = "100-mhz";
+        slew-rate = "slow";
+      };
+
+      lpuart3_rts_pin {
+        pinmux = <&iomuxc_gpio_emc_16_lpuart3_rts_b>;
         drive-strength = "r0-3";
         nxp,speed = "100-mhz";
         slew-rate = "slow";
@@ -562,6 +606,15 @@
 ipc_serial: &lpuart8 {
   current-speed = <2995200>;
   pinctrl-0 = <&pinmux_lpuart8>;
+  pinctrl-names = "default";
+  hw-flow-control;
+};
+
+/* Modem UART */
+modem_uart: &lpuart3 {
+  status = "okay";
+  current-speed = <115200>;
+  pinctrl-0 = <&pinmux_lpuart3>;
   pinctrl-names = "default";
   hw-flow-control;
 };
