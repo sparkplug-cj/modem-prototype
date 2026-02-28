@@ -33,37 +33,31 @@ If flashing fails, capture:
 - full console output from `west flash` (include runner name)
 - probe type (e.g., J-Link) and target connection (USB/JTAG/SWD)
 
-## RTT shell (SEGGER)
+## USB CDC ACM shell
 
-This project supports **Zephyr shell over SEGGER RTT**.
+This project supports **Zephyr shell over USB CDC ACM**.
 
-One common way to attach is:
+1. Connect the control board USB port to your host.
+2. Flash firmware, then replug USB if your host does not enumerate immediately.
+3. Open the virtual serial port:
+   - Linux: `/dev/ttyACM*`
+   - macOS: `/dev/cu.usbmodem*`
+   - Windows: `COMx`
 
-1. Start a J-Link session (device name varies by MCU; adjust as needed):
+Example (Linux/macOS):
 
-   ```bash
-   JLinkExe -if SWD -speed 4000 -autoconnect 1
-   ```
+```bash
+tio /dev/ttyACM0
+# or
+screen /dev/ttyACM0 115200
+```
 
-2. In the J-Link prompt, start RTT:
-
-   ```text
-   rtt start
-   rtt terminal 0
-   ```
-
-3. You should see boot logs.
-
-4. Open the shell channel (if you don’t see a shell prompt on terminal 0):
-
-   ```text
-   rtt terminal 1
-   ```
+> Baud setting is ignored by USB CDC ACM, but many terminal apps require one.
 
 You should see a prompt like:
 
 ```text
-rtt:ctrl>
+usb:ctrl>
 ```
 
 Verify the shell is responsive:
@@ -75,8 +69,8 @@ kernel uptime
 ```
 
 Troubleshooting notes:
-- If RTT can’t find the control block, ensure the firmware is running and built with RTT enabled.
-- If you see logs but no prompt, press Enter a couple times and try `rtt terminal 1`.
+- If no `ttyACM`/`usbmodem`/`COM` port appears, check cable quality and USB permissions/drivers.
+- If the port appears but no prompt, press Enter a couple of times.
 
 ## Acceptance checklist
 
@@ -84,5 +78,5 @@ Troubleshooting notes:
 - [ ] Canonical build command completes without errors
 - [ ] `control/build/zephyr/zephyr.elf` (and `.hex`/`.bin` as applicable) produced
 - [ ] `west flash -d control/build` succeeds on target hardware
-- [ ] RTT attaches and shows logs
+- [ ] USB CDC ACM port enumerates on host (`ttyACM` / `usbmodem` / `COM`)
 - [ ] Shell prompt appears and is responsive (`help`, `kernel version`, `kernel uptime`)

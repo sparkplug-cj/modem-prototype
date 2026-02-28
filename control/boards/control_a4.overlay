@@ -1,13 +1,15 @@
 / {
+  chosen {
+    zephyr,shell-uart = &cdc_acm_uart0;
+  };
+
   pwm {
     status = "okay";
   };
-  
+
   chamberout_temp_ntc: chamberout_temp_ntc {
     status = "okay";
-  };  
-
-
+  };
 };
 
 &zephyr_udc0 {
