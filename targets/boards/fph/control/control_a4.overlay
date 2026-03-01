@@ -248,6 +248,15 @@
   gptfreq = <22000000>; // Pro rata slowdown (600/528 => 25/22)
 };
 
+&gpio1 {
+  usb_otg1_pwr_en {
+    gpio-hog;
+    gpios = <2 GPIO_ACTIVE_HIGH>;
+    output-high;
+    line-name = "enable_usb_otg1_pwr";
+  };
+};
+
 &gpio4 {
   gpio4_adc_en {
     gpio-hog;
