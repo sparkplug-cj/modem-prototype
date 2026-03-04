@@ -1,7 +1,7 @@
 / {
-  // chosen {
-  //   zephyr,shell-uart = &cdc_acm_uart0;
-  // };
+  chosen {
+    zephyr,shell-uart = &cdc_acm_uart0;
+  };
 
   pwm {
     status = "okay";
@@ -14,6 +14,11 @@
 
 &zephyr_udc0 {
   status = "okay";
+
+  /* Expose CDC ACM as a UART-like device so shell backend can bind to it. */
+  cdc_acm_uart0: cdc_acm_uart0 {
+    compatible = "zephyr,cdc-acm-uart";
+  };
 };
 
 &ipc_serial {
