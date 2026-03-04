@@ -153,6 +153,92 @@ If a future Catch2 test tree appears, prefer its local README/build script for e
 - Put board-specific hardware details in board DTS/overlay, not generic app code.
 - Keep bindings YAML strict and descriptive.
 
+## Feature Playbook: Zephyr Shell over USB CDC ACM (recommended)
+
+Goal: **interactive shell** on the USB CDC ACM serial port, while keeping **logs on SEGGER RTT**.
+
+### 1) Devicetree (control@a4)
+
+In `control/boards/control_a4.overlay`:
+
+- Enable the USB device controller:
+
+```dts
+&zephyr_udc0 {
+  status = "okay";
+
+  /* Expose CDC ACM as a UART-like device so the shell serial backend can bind. */
+  cdc_acm_uart0: cdc_acm_uart0 {
+    compatible = "zephyr,cdc-acm-uart";
+  };
+};
+```
+
+- Point the shell UART to the CDC ACM UART node:
+
+```dts
+/ {
+  chosen {
+    zephyr,shell-uart = &cdc_acm_uart0;
+  };
+};
+```
+
+Notes:
+- Do **not** rely on `west build -S cdc-acm-console` for devicetree nodes; snippets are Kconfig-centric and can hide the real requirements.
+
+### 2) Kconfig (`control/prj.conf`)
+
+Enable USB device stack + CDC ACM + shell serial backend:
+
+```conf
+CONFIG_USB_DEVICE_STACK=y
+CONFIG_USB_CDC_ACM=y
+CONFIG_USB_DEVICE_INITIALIZE_AT_BOOT=y
+CONFIG_UART_INTERRUPT_DRIVEN=y
+CONFIG_UART_LINE_CTRL=y
+
+CONFIG_SHELL=y
+CONFIG_SHELL_BACKEND_SERIAL=y
+CONFIG_KERNEL_SHELL=y
+```
+
+Keep logs on RTT:
+
+```conf
+CONFIG_USE_SEGGER_RTT=y
+CONFIG_RTT_CONSOLE=y
+CONFIG_LOG_BACKEND_RTT=y
+```
+
+**Critical:** keep the USB shell clean by disabling the shell log backend:
+
+```conf
+CONFIG_SHELL_LOG_BACKEND=n
+```
+
+Otherwise Zephyr will mirror logs into the shell transport and you’ll see log spam on the USB shell UART.
+
+### 3) Host-side usage
+
+- Windows: Device Manager → Ports → `COMx`, connect with PuTTY (baud is ignored but required by many tools).
+- Linux/WSL: connect to `/dev/ttyACM*` using `screen /dev/ttyACM0 115200` or similar.
+
+### 4) Verification commands
+
+In the shell:
+
+```text
+help
+kernel version
+kernel uptime
+```
+
+### 5) Common failure modes
+
+- Linker errors like `undefined reference to usb_dc_ep_write`: UDC (`&zephyr_udc0`) is still `status = "disabled"` in DTS.
+- Two COM ports and duplicated logs: `CONFIG_SHELL_LOG_BACKEND` enabled or console routed to CDC.
+
 ## What to Avoid
 
 - Do not edit `thirdparty/` manually for normal feature work.
