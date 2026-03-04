@@ -248,15 +248,6 @@
   gptfreq = <22000000>; // Pro rata slowdown (600/528 => 25/22)
 };
 
-&gpio1 {
-  usb_otg1_pwr_en {
-    gpio-hog;
-    gpios = <2 GPIO_ACTIVE_HIGH>;
-    output-high;
-    line-name = "enable_usb_otg1_pwr";
-  };
-};
-
 &gpio4 {
   gpio4_adc_en {
     gpio-hog;
@@ -684,9 +675,9 @@ ipc_serial: &lpuart8 {
 zephyr_udc0: &usb1 {
   pinctrl-0 = <&pinmux_usb1>;
   pinctrl-names = "default";
-  cdc_acm_uart0: cdc_acm_uart0 {
-    compatible = "zephyr,cdc-acm-uart";
-  };
+  // cdc_acm_uart0: cdc_acm_uart0 {
+  //   compatible = "zephyr,cdc-acm-uart";
+  // };
 };
 
 &xbar1 {
