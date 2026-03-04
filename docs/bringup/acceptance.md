@@ -54,10 +54,10 @@ screen /dev/ttyACM0 115200
 
 > Baud setting is ignored by USB CDC ACM, but many terminal apps require one.
 
-You should see a prompt like:
+You should see a prompt like (Zephyr default):
 
 ```text
-usb:ctrl>
+uart:~$ 
 ```
 
 Verify the shell is responsive:
