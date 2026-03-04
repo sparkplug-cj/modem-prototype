@@ -1,6 +1,6 @@
 /**
  * This file was obtained from https://wiki.segger.com/images/8/86/Example_Reset_CortexM_Normal.JLinkScript on
- * 19 Sep 2023. See https://gitlab.fphcare.com/cpap-software/waitara/waitara/-/issues/230 for related work.
+ * 19 Sep 2023.
  *
  * In addition to the original function, reset is performed for external boot device using nRST line connected
  * to GPIO_SD_B1_04, toggled for 100ms.
