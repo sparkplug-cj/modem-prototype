@@ -86,12 +86,25 @@ int modem_board_power_cycle(void);
 int modem_board_reset_pulse(void);
 
 /**
- * @brief Print current control line states.
- *
- * Prints the instantaneous values of the rail enable, PWR_ON_N, and reset GPIOs.
- * Intended for interactive diagnostics via shell/RTT.
+ * @brief Snapshot of modem-board control line states.
  */
-void modem_board_status_print(void);
+struct modem_board_status {
+	int rail_en;   /**< MODEM_3V8_EN GPIO value (0/1), or negative errno */
+	int pwr_on_n;  /**< MODEM_PWR_ON_N GPIO value (0/1), or negative errno */
+	int rst_n;     /**< MODEM_RST_N GPIO value (0/1), or negative errno */
+};
+
+/**
+ * @brief Read current control line states.
+ *
+ * This is a pure data function; formatting/output is the caller's responsibility.
+ *
+ * @param[out] out Filled with instantaneous GPIO values.
+ *
+ * @retval 0 Success.
+ * @retval -EINVAL out is NULL.
+ */
+int modem_board_get_status(struct modem_board_status *out);
 
 #ifdef __cplusplus
 }

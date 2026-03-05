@@ -10,8 +10,16 @@ static int cmd_modem_status(const struct shell *sh, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	modem_board_status_print();
-	shell_print(sh, "OK");
+	struct modem_board_status st;
+	int ret = modem_board_get_status(&st);
+	if (ret != 0) {
+		shell_error(sh, "status read failed: %d", ret);
+		return ret;
+	}
+
+	shell_print(sh,
+		"MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d",
+		st.rail_en, st.pwr_on_n, st.rst_n);
 	return 0;
 }
 

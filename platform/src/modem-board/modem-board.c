@@ -145,13 +145,16 @@ int modem_board_reset_pulse(void)
 	return ret;
 }
 
-void modem_board_status_print(void)
+int modem_board_get_status(struct modem_board_status *out)
 {
-	int rail = gpio_pin_get_dt(&rail_en);
-	int pwr = gpio_pin_get_dt(&pwr_on_n);
-	int rst = gpio_pin_get_dt(&rst_n);
+	if (out == NULL) {
+		return -EINVAL;
+	}
 
-	LOG_INF("MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d", rail, pwr, rst);
+	out->rail_en = gpio_pin_get_dt(&rail_en);
+	out->pwr_on_n = gpio_pin_get_dt(&pwr_on_n);
+	out->rst_n = gpio_pin_get_dt(&rst_n);
+	return 0;
 }
 
 static int modem_board_sys_init(void)
