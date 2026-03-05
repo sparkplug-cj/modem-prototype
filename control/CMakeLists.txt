@@ -17,7 +17,11 @@ project(control_application)
 
 include(${WORKSPACE_ROOT_CMAKEFILES_DIR}/firmware-compile-options.cmake)
 
-target_sources(app PRIVATE ${CONTROL_SRC_DIR}/main.c)
+target_sources(app PRIVATE
+  ${CONTROL_SRC_DIR}/main.c
+  ${CONTROL_SRC_DIR}/modem_board.c
+  ${CONTROL_SRC_DIR}/modem_shell.c
+)
 
 mark_zephyr_system_includes(app)
 target_link_libraries(app PRIVATE zephyr_interface)
