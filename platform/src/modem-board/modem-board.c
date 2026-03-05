@@ -44,15 +44,27 @@ static int ensure_ready(void)
 
 
 
+static int gpio_dt_set_active(const struct gpio_dt_spec *spec, bool active)
+{
+	/* gpio_pin_set* APIs operate on the raw electrical level.
+	 * Apply GPIO_ACTIVE_LOW here so callers can work in logical terms.
+	 */
+	int raw = active ? 1 : 0;
+	if ((spec->dt_flags & GPIO_ACTIVE_LOW) != 0) {
+		raw = !raw;
+	}
+	return gpio_pin_set(spec->port, spec->pin, raw);
+}
+
 static int pwr_on_n_pulse(int pulse_ms)
 {
 	int ret;
-	ret = gpio_pin_set_dt(&pwr_on_n, 1); /* assert (active low) */
+	ret = gpio_dt_set_active(&pwr_on_n, true); /* assert (active low) */
 	if (ret != 0) {
 		return ret;
 	}
 	k_sleep(K_MSEC(pulse_ms));
-	ret = gpio_pin_set_dt(&pwr_on_n, 0); /* deassert */
+	ret = gpio_dt_set_active(&pwr_on_n, false); /* deassert */
 	return ret;
 }
 
@@ -115,12 +127,12 @@ int modem_board_reset_pulse(void)
 	if (ret != 0) {
 		return ret;
 	}
-	ret = gpio_pin_set_dt(&rst_n, 1);
+	ret = gpio_dt_set_active(&rst_n, true);
 	if (ret != 0) {
 		return ret;
 	}
 	k_sleep(K_MSEC(T_RESET_PULSE_MS));
-	ret = gpio_pin_set_dt(&rst_n, 0);
+	ret = gpio_dt_set_active(&rst_n, false);
 	return ret;
 }
 
