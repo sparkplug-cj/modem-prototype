@@ -257,6 +257,14 @@
 };
 
 &gpio4 {
+  // MODEM_3V8_EN (active high)
+  gpio4_modem_3v8_en {
+    gpio-hog;
+    gpios = <0 GPIO_ACTIVE_HIGH>;
+    // Default off
+    output-low;
+  };
+
   gpio4_adc_en {
     gpio-hog;
     gpios = <25 GPIO_ACTIVE_HIGH>;
@@ -268,8 +276,19 @@
   gpio4_modem_nrst {
     gpio-hog;
     gpios = <9 GPIO_ACTIVE_LOW>;
-    // Default to reset (ie, disabled), let application enable if used.
-    output-high;
+    // Default deasserted (raw high)
+    output-low;
+  };
+};
+
+
+&gpio2 {
+  // MODEM_PWR_ON_N (PWER_ON_N) - active low
+  gpio2_modem_pwr_on_n {
+    gpio-hog;
+    gpios = <22 GPIO_ACTIVE_LOW>;
+    // Default deasserted (raw high)
+    output-low;
   };
 };
 

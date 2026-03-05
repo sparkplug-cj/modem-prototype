@@ -19,22 +19,6 @@ extern "C" {
  */
 
 /**
- * @brief Initialize modem-board GPIOs and set a safe default state.
- *
- * Preconditions:
- * - Required `/zephyr,user` GPIO properties must exist in the devicetree overlay.
- *
- * Postconditions:
- * - Rail enable and PWR_ON_N GPIOs are configured as outputs (inactive).
- * - Reset line is asserted if available/configured.
- *
- * @retval 0 Success.
- * @retval -ENODEV GPIO controller device not ready.
- * @retval -EIO GPIO configuration failed.
- */
-int modem_board_init(void);
-
-/**
  * @brief Power on the modem.
  *
  * High-level behavior:
