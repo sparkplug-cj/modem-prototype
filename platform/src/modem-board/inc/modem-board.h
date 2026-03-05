@@ -89,9 +89,15 @@ int modem_board_reset_pulse(void);
  * @brief Snapshot of modem-board control line states.
  */
 struct modem_board_status {
-	int rail_en;   /**< MODEM_3V8_EN GPIO value (0/1), or negative errno */
-	int pwr_on_n;  /**< MODEM_PWR_ON_N GPIO value (0/1), or negative errno */
-	int rst_n;     /**< MODEM_RST_N GPIO value (0/1), or negative errno */
+	/* Logical values (honor GPIO_ACTIVE_LOW) */
+	int rail_en;   /**< MODEM_3V8_EN logical value (0/1), or negative errno */
+	int pwr_on_n;  /**< MODEM_PWR_ON_N logical value (0/1), or negative errno */
+	int rst_n;     /**< MODEM_RST_N logical value (0/1), or negative errno */
+
+	/* Raw electrical levels (0=low, 1=high) */
+	int rail_en_raw;  /**< MODEM_3V8_EN raw level (0/1), or negative errno */
+	int pwr_on_n_raw; /**< MODEM_PWR_ON_N raw level (0/1), or negative errno */
+	int rst_n_raw;    /**< MODEM_RST_N raw level (0/1), or negative errno */
 };
 
 /**
