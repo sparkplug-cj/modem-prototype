@@ -675,9 +675,9 @@ ipc_serial: &lpuart8 {
 zephyr_udc0: &usb1 {
   pinctrl-0 = <&pinmux_usb1>;
   pinctrl-names = "default";
-  cdc_acm_uart0: cdc_acm_uart0 {
-    compatible = "zephyr,cdc-acm-uart";
-  };
+  // cdc_acm_uart0: cdc_acm_uart0 {
+  //   compatible = "zephyr,cdc-acm-uart";
+  // };
 };
 
 &xbar1 {
