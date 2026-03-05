@@ -277,7 +277,7 @@
     gpio-hog;
     gpios = <9 GPIO_ACTIVE_LOW>;
     // Default deasserted (raw high)
-    output-low;
+    output-high;
   };
 };
 
@@ -288,7 +288,7 @@
     gpio-hog;
     gpios = <22 GPIO_ACTIVE_LOW>;
     // Default deasserted (raw high)
-    output-low;
+    output-high;
   };
 };
 
