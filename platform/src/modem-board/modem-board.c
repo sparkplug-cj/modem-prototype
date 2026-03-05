@@ -139,9 +139,6 @@ int modem_board_get_status(struct modem_board_status *out)
 	out->pwr_on_n = gpio_pin_get_dt(&pwr_on_n);
 	out->rst_n = gpio_pin_get_dt(&rst_n);
 
-	out->rail_en_raw = gpio_pin_get(rail_en.port, rail_en.pin);
-	out->pwr_on_n_raw = gpio_pin_get(pwr_on_n.port, pwr_on_n.pin);
-	out->rst_n_raw = gpio_pin_get(rst_n.port, rst_n.pin);
 
 	return 0;
 }

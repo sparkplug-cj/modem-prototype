@@ -18,10 +18,8 @@ static int cmd_modem_status(const struct shell *sh, size_t argc, char **argv)
 	}
 
 	shell_print(sh,
-		"MODEM_3V8_EN=%d (raw=%d), MODEM_PWR_ON_N=%d (raw=%d), MODEM_RST_N=%d (raw=%d)",
-		st.rail_en, st.rail_en_raw,
-		st.pwr_on_n, st.pwr_on_n_raw,
-		st.rst_n, st.rst_n_raw);
+		"MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d",
+		st.rail_en, st.pwr_on_n, st.rst_n);
 	return 0;
 }
 
