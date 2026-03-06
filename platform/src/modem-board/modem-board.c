@@ -16,13 +16,13 @@ LOG_MODULE_REGISTER(modem_board, LOG_LEVEL_INF);
 #if !DT_NODE_HAS_PROP(MODEM_NODE, modem_pwr_on_n_gpios)
 #error "Missing /zephyr,user modem-pwr-on-n-gpios devicetree property"
 #endif
-#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_nrst_n_gpios)
-#error "Missing /zephyr,user modem-nrst-n-gpios devicetree property"
+#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_rst_n_gpios)
+#error "Missing /zephyr,user modem-rst-n-gpios devicetree property"
 #endif
 
 static const struct gpio_dt_spec rail_en = GPIO_DT_SPEC_GET(MODEM_NODE, modem_3v8_en_gpios);
 static const struct gpio_dt_spec pwr_on_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_pwr_on_n_gpios);
-static const struct gpio_dt_spec rst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_nrst_n_gpios);
+static const struct gpio_dt_spec rst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_rst_n_gpios);
 
 /*
  * NOTE: Exact modem timing requirements need to be confirmed.

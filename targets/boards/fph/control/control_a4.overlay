@@ -44,7 +44,7 @@
      */
     modem-3v8-en-gpios = <&gpio4 0 GPIO_ACTIVE_HIGH>; /* GPIO_EMC_00 */
     modem-pwr-on-n-gpios = <&gpio2 22 GPIO_ACTIVE_LOW>; /* GPIO_B1_06 (PWER_ON_N) */
-    modem-nrst-n-gpios = <&gpio4 9 GPIO_ACTIVE_LOW>; /* GPIO_EMC_09 (RESET_IN_N) */
+    modem-rst-n-gpios = <&gpio4 9 GPIO_ACTIVE_LOW>; /* GPIO_EMC_09 (RESET_IN_N) */
   };
 
 	gpios {
@@ -272,7 +272,7 @@
     output-low;
   };
 
-  // MODEM_nRST (RESET_IN_N) - active low
+  // MODEM_RST_N (RESET_IN_N) - active low
   gpio4_modem_nrst {
     gpio-hog;
     gpios = <9 GPIO_ACTIVE_LOW>;

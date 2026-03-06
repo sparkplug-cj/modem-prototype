@@ -91,7 +91,7 @@ Manual acceptance steps:
 - [ ] Run `modem status` and confirm it prints the three control lines:
   - `MODEM_3V8_EN`
   - `MODEM_PWR_ON_N`
-  - `MODEM_nRST`
+  - `MODEM_RST_N`
 - [ ] Run `modem power on` and confirm:
   - MODEM 3V8 rail is enabled (measure 3V8 on the modem rail if accessible)
   - modem begins booting (e.g., UART activity / status LED, depending on module)
