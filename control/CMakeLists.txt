@@ -16,10 +16,16 @@ find_package(Zephyr REQUIRED HINTS ${ZEPHYR_BASE})
 project(control_application)
 
 include(${WORKSPACE_ROOT_CMAKEFILES_DIR}/firmware-compile-options.cmake)
+include(${PLATFORM_DIR}/CMakeFiles/build-platform-targets.cmake) # Discover all all targets under platform directory.
 
-target_sources(app PRIVATE ${CONTROL_SRC_DIR}/main.c)
+target_sources(app PRIVATE
+  ${CONTROL_SRC_DIR}/main.c
+)
+
+# Platform units
+target_link_libraries(app PRIVATE platform_src_modem_board_obj)
+target_link_libraries(app PRIVATE platform_src_modem_shell_obj)
 
 mark_zephyr_system_includes(app)
 target_link_libraries(app PRIVATE zephyr_interface)
-
 add_dependencies(app zephyr_generated_headers)
