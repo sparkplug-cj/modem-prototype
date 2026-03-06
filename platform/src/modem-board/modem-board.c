@@ -47,7 +47,7 @@ static int ensure_ready(void)
 static int gpio_dt_set_active(const struct gpio_dt_spec *spec, bool active)
 {
 	/* gpio_pin_set* APIs operate on the raw electrical level.
-	 * Apply GPIO_ACTIVE_LOW here so callers can work in logical terms.
+	 * Apply GPIO_ACTIVE_LOW here so callers can work in active/inactive (assert/deassert) terms.
 	 */
 	int raw = active ? 1 : 0;
 	if ((spec->dt_flags & GPIO_ACTIVE_LOW) != 0) {
