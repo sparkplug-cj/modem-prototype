@@ -1,7 +1,7 @@
 # RC76xx Requirements — Power Sequencing
 
 Primary references:
-- `41113440 RC76xx Product Technical Specification r18.pdf`
+- `41113440 RC76xx Product Technical Specification r18`
 - Sections: 3.2.1, 3.2.2, 4.1, 4.1.1, 4.1.2, 4.2, 4.3, 4.14, 4.24.5
 
 | ID | Requirement | Source | Rationale | Verification | Related |

@@ -1,7 +1,7 @@
 # RC76xx Requirements — Sleep and PSM
 
 Primary references:
-- `41113440 RC76xx Product Technical Specification r18.pdf`
+- `41113440 RC76xx Product Technical Specification r18`
 - Sections: 3.2.3, 3.2.4, 3.2.5, 4.11, 4.12, 4.14
 
 | ID | Requirement | Source | Rationale | Verification | Related |

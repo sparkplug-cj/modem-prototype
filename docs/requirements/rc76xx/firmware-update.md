@@ -1,7 +1,7 @@
 # RC76xx Requirements — Firmware Update and Recovery
 
 Primary references:
-- `41113440 RC76xx Product Technical Specification r18.pdf`
+- `41113440 RC76xx Product Technical Specification r18`
 - Sections: 4.20, 6.2, 6.3, 6.4, 7.7, 4.22/4.29
 
 | ID | Requirement | Source | Rationale | Verification | Related |

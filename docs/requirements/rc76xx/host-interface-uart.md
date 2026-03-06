@@ -1,7 +1,7 @@
 # RC76xx Requirements — Host Interface (UART)
 
 Primary references:
-- `41113440 RC76xx Product Technical Specification r18.pdf`
+- `41113440 RC76xx Product Technical Specification r18`
 - Sections: 4.6, Table 4-6, 4.11, 7.5, 4.22/4.29
 
 | ID | Requirement | Source | Rationale | Verification | Related |
