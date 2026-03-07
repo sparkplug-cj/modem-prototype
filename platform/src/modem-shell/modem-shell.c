@@ -2,7 +2,36 @@
 
 #include "modem-shell-core.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
 #include <zephyr/shell/shell.h>
+
+static void shell_print_adapter(void *ctx, const char *fmt, ...)
+{
+	const struct shell *sh = ctx;
+	char buffer[128];
+	va_list args;
+
+	va_start(args, fmt);
+	vsnprintf(buffer, sizeof(buffer), fmt, args);
+	va_end(args);
+
+	shell_fprintf_normal(sh, "%s\n", buffer);
+}
+
+static void shell_error_adapter(void *ctx, const char *fmt, ...)
+{
+	const struct shell *sh = ctx;
+	char buffer[128];
+	va_list args;
+
+	va_start(args, fmt);
+	vsnprintf(buffer, sizeof(buffer), fmt, args);
+	va_end(args);
+
+	shell_fprintf_error(sh, "%s\n", buffer);
+}
 
 static const struct modem_shell_ops shellOps = {
 	.modem_board_power_on = modem_board_power_on,
@@ -10,8 +39,8 @@ static const struct modem_shell_ops shellOps = {
 	.modem_board_power_cycle = modem_board_power_cycle,
 	.modem_board_reset_pulse = modem_board_reset_pulse,
 	.modem_board_get_status = modem_board_get_status,
-	.print = (void (*)(void *, const char *, ...))shell_print,
-	.error = (void (*)(void *, const char *, ...))shell_error,
+	.print = shell_print_adapter,
+	.error = shell_error_adapter,
 };
 
 static int cmd_modem_status(const struct shell *sh, size_t argc, char **argv)
