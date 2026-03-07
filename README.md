@@ -10,6 +10,10 @@ This repo is a self-contained **Zephyr west workspace**. Zephyr and modules live
 
 ### Python env (recommended)
 
+Activate any Python environment that has a working `west` install available.
+
+For example, a repo-local environment:
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
@@ -45,6 +49,32 @@ west build control -p auto -b control@a4 --shield sense_a3 -d control/build
 
 Notes:
 - You do **not** need to export `BOARD_ROOT`/`DTS_ROOT` env vars; the repo CMake wiring sets the required roots.
+
+## Tests
+
+### Host-side Catch2 tests
+
+From repo root:
+
+```bash
+cmake -S platform/tests/catch2 -B platform/tests/catch2/build
+cmake --build platform/tests/catch2/build
+ctest --test-dir platform/tests/catch2/build --output-on-failure
+
+cmake -S control/tests/catch2 -B control/tests/catch2/build
+cmake --build control/tests/catch2/build
+ctest --test-dir control/tests/catch2/build --output-on-failure
+```
+
+### Current test layout
+
+- `platform/tests/catch2` — host-side Catch2 tests for platform units
+- `platform/tests/ztest` — Zephyr ztest suites for platform units
+- `platform/test-doubles` — fakes/mocks for platform dependencies
+- `control/tests/catch2` — host-side Catch2 tests for control units
+- `control/tests/ztest` — Zephyr ztest suites for control units
+- `control/tests/integration` — integration tests for the control/application layer
+- `control/test-doubles` — fakes/mocks for control dependencies
 
 ## Bring-up / acceptance
 
