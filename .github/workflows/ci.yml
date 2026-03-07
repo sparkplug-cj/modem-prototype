@@ -12,10 +12,6 @@ jobs:
     name: Host Catch2 tests
     runs-on: ubuntu-24.04
 
-    defaults:
-      run:
-        working-directory: app
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -37,23 +33,19 @@ jobs:
 
       - name: Run platform Catch2 tests
         run: |
-          cmake -S platform/tests/catch2 -B platform/tests/catch2/build
-          cmake --build platform/tests/catch2/build
-          ctest --test-dir platform/tests/catch2/build --output-on-failure
+          cmake -S app/platform/tests/catch2 -B app/platform/tests/catch2/build
+          cmake --build app/platform/tests/catch2/build
+          ctest --test-dir app/platform/tests/catch2/build --output-on-failure
 
       - name: Run control Catch2 tests
         run: |
-          cmake -S control/tests/catch2 -B control/tests/catch2/build
-          cmake --build control/tests/catch2/build
-          ctest --test-dir control/tests/catch2/build --output-on-failure
+          cmake -S app/control/tests/catch2 -B app/control/tests/catch2/build
+          cmake --build app/control/tests/catch2/build
+          ctest --test-dir app/control/tests/catch2/build --output-on-failure
 
   firmware-build:
     name: Zephyr firmware build
     runs-on: ubuntu-24.04
-
-    defaults:
-      run:
-        working-directory: app
 
     steps:
       - name: Checkout repository
@@ -75,4 +67,4 @@ jobs:
           sdk-version: 0.17.2
 
       - name: Build control firmware
-        run: west build control -p auto -b control@a4 --shield sense_a3 -d control/build
+        run: west build app/control -p auto -b control@a4 --shield sense_a3 -d app/control/build
