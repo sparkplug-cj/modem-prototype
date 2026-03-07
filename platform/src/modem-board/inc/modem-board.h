@@ -1,6 +1,7 @@
 #pragma once
 
 #include <errno.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,7 +78,8 @@ struct modem_board_status {
 	int rail_en;   /**< MODEM_3V8_EN logical value (0/1), or negative errno */
 	int pwr_on_n;  /**< MODEM_PWR_ON_N logical value (0/1), or negative errno */
 	int rst_n;     /**< MODEM_RST_N logical value (0/1), or negative errno */
-
+	int vgpio_mv;  /**< VGPIO sense voltage in mV, or negative errno if ADC read failed */
+	bool modem_state_on; /**< Derived boolean modem state based on VGPIO threshold */
 };
 
 /**
