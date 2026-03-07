@@ -12,9 +12,15 @@ jobs:
     name: Host Catch2 tests
     runs-on: ubuntu-24.04
 
+    defaults:
+      run:
+        working-directory: app
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: app
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,7 +30,8 @@ jobs:
       - name: Set up Zephyr workspace
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: .
+          app-path: app
+          manifest-file-name: .west/west.yml
           toolchains: arm-zephyr-eabi
           sdk-version: 0.17.2
 
@@ -44,9 +51,15 @@ jobs:
     name: Zephyr firmware build
     runs-on: ubuntu-24.04
 
+    defaults:
+      run:
+        working-directory: app
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: app
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -56,7 +69,8 @@ jobs:
       - name: Set up Zephyr workspace
         uses: zephyrproject-rtos/action-zephyr-setup@v1
         with:
-          app-path: .
+          app-path: app
+          manifest-file-name: .west/west.yml
           toolchains: arm-zephyr-eabi
           sdk-version: 0.17.2
 
