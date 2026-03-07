@@ -1,5 +1,7 @@
 #include <modem-board.h>
 
+#include "modem-board-core.h"
+
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
@@ -24,25 +26,14 @@ static const struct gpio_dt_spec rail_en = GPIO_DT_SPEC_GET(MODEM_NODE, modem_3v
 static const struct gpio_dt_spec pwr_on_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_pwr_on_n_gpios);
 static const struct gpio_dt_spec rst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_rst_n_gpios);
 
-/*
- * NOTE: Exact modem timing requirements need to be confirmed.
- * These defaults are based on common cellular modem patterns.
- */
-static const int T_RAIL_SETTLE_MS = 10;
-static const int T_PWR_ON_PULSE_MS = 250;
-static const int T_PWR_OFF_PULSE_MS = 1500;
-static const int T_POST_ON_DELAY_MS = 100;
-static const int T_RESET_PULSE_MS = 200;
-
-static int ensure_ready(void)
+static int ensure_ready(void *ctx)
 {
+	ARG_UNUSED(ctx);
 	if (!device_is_ready(rail_en.port) || !device_is_ready(pwr_on_n.port) || !device_is_ready(rst_n.port)) {
 		return -ENODEV;
 	}
 	return 0;
 }
-
-
 
 static int gpio_dt_set_active(const struct gpio_dt_spec *spec, bool active)
 {
@@ -56,102 +47,82 @@ static int gpio_dt_set_active(const struct gpio_dt_spec *spec, bool active)
 	return gpio_pin_set(spec->port, spec->pin, raw);
 }
 
-static int pwr_on_n_pulse(int pulse_ms)
+static int set_rail_en(void *ctx, int value)
 {
-	int ret;
-	ret = gpio_dt_set_active(&pwr_on_n, true); /* assert (active low) */
-	if (ret != 0) {
-		return ret;
-	}
-	k_sleep(K_MSEC(pulse_ms));
-	ret = gpio_dt_set_active(&pwr_on_n, false); /* deassert */
-	return ret;
+	ARG_UNUSED(ctx);
+	return gpio_pin_set_dt(&rail_en, value);
 }
+
+static int set_pwr_on_asserted(void *ctx, bool asserted)
+{
+	ARG_UNUSED(ctx);
+	return gpio_dt_set_active(&pwr_on_n, asserted);
+}
+
+static int set_rst_asserted(void *ctx, bool asserted)
+{
+	ARG_UNUSED(ctx);
+	return gpio_dt_set_active(&rst_n, asserted);
+}
+
+static int get_rail_en(void *ctx)
+{
+	ARG_UNUSED(ctx);
+	return gpio_pin_get_dt(&rail_en);
+}
+
+static int get_pwr_on_n(void *ctx)
+{
+	ARG_UNUSED(ctx);
+	return gpio_pin_get_dt(&pwr_on_n);
+}
+
+static int get_rst_n(void *ctx)
+{
+	ARG_UNUSED(ctx);
+	return gpio_pin_get_dt(&rst_n);
+}
+
+static void sleep_ms(void *ctx, int duration_ms)
+{
+	ARG_UNUSED(ctx);
+	k_sleep(K_MSEC(duration_ms));
+}
+
+static const struct modem_board_ops boardOps = {
+	.ensure_ready = ensure_ready,
+	.set_rail_en = set_rail_en,
+	.set_pwr_on_asserted = set_pwr_on_asserted,
+	.set_rst_asserted = set_rst_asserted,
+	.get_rail_en = get_rail_en,
+	.get_pwr_on_n = get_pwr_on_n,
+	.get_rst_n = get_rst_n,
+	.sleep_ms = sleep_ms,
+	.ctx = NULL,
+};
 
 int modem_board_power_on(void)
 {
-	int ret = ensure_ready();
-	if (ret != 0) {
-		return ret;
-	}
-
-	/* Avoid using RESET_IN_N for normal bring-up; prefer power-cycle via rail + PWR_ON_N. */
-
-	ret = gpio_pin_set_dt(&rail_en, 1);
-	if (ret != 0) {
-		return ret;
-	}
-	k_sleep(K_MSEC(T_RAIL_SETTLE_MS));
-
-	ret = pwr_on_n_pulse(T_PWR_ON_PULSE_MS);
-	if (ret != 0) {
-		return ret;
-	}
-
-	k_sleep(K_MSEC(T_POST_ON_DELAY_MS));
-	return 0;
+	return modem_board_power_on_core(&boardOps);
 }
 
 int modem_board_power_off(void)
 {
-	int ret = ensure_ready();
-	if (ret != 0) {
-		return ret;
-	}
-
-	/* Optionally request modem shutdown via long PWR_ON_N pulse. */
-	ret = pwr_on_n_pulse(T_PWR_OFF_PULSE_MS);
-	if (ret != 0) {
-		return ret;
-	}
-
-	/* Remove rail. */
-	ret = gpio_pin_set_dt(&rail_en, 0);
-	return ret;
+	return modem_board_power_off_core(&boardOps);
 }
 
 int modem_board_power_cycle(void)
 {
-	int ret;
-	ret = modem_board_power_off();
-	if (ret != 0) {
-		return ret;
-	}
-	k_sleep(K_MSEC(500));
-	return modem_board_power_on();
+	return modem_board_power_cycle_core(&boardOps);
 }
 
 int modem_board_reset_pulse(void)
 {
-	int ret = ensure_ready();
-	if (ret != 0) {
-		return ret;
-	}
-	ret = gpio_dt_set_active(&rst_n, true);
-	if (ret != 0) {
-		return ret;
-	}
-	k_sleep(K_MSEC(T_RESET_PULSE_MS));
-	ret = gpio_dt_set_active(&rst_n, false);
-	return ret;
+	return modem_board_reset_pulse_core(&boardOps);
 }
 
 int modem_board_get_status(struct modem_board_status *out)
 {
-	if (out == NULL) {
-		return -EINVAL;
-	}
-
-	int ret = ensure_ready();
-	if (ret != 0) {
-		return ret;
-	}
-
-	out->rail_en = gpio_pin_get_dt(&rail_en);
-	out->pwr_on_n = gpio_pin_get_dt(&pwr_on_n);
-	out->rst_n = gpio_pin_get_dt(&rst_n);
-
-
-	return 0;
+	return modem_board_get_status_core(&boardOps, out);
 }
 

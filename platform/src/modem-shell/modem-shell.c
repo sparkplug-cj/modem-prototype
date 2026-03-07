@@ -1,26 +1,27 @@
 #include <modem-board.h>
 
-#include <errno.h>
-#include <string.h>
+#include "modem-shell-core.h"
 
 #include <zephyr/shell/shell.h>
+
+static const struct modem_shell_ops shellOps = {
+	.modem_board_power_on = modem_board_power_on,
+	.modem_board_power_off = modem_board_power_off,
+	.modem_board_power_cycle = modem_board_power_cycle,
+	.modem_board_reset_pulse = modem_board_reset_pulse,
+	.modem_board_get_status = modem_board_get_status,
+	.print = (void (*)(void *, const char *, ...))shell_print,
+	.error = (void (*)(void *, const char *, ...))shell_error,
+};
 
 static int cmd_modem_status(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	struct modem_board_status st;
-	int ret = modem_board_get_status(&st);
-	if (ret != 0) {
-		shell_error(sh, "status read failed: %d", ret);
-		return ret;
-	}
-
-	shell_print(sh,
-		"MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d",
-		st.rail_en, st.pwr_on_n, st.rst_n);
-	return 0;
+	struct modem_shell_ops ops = shellOps;
+	ops.ctx = (void *)sh;
+	return modem_shell_cmd_status_core(&ops);
 }
 
 static int cmd_modem_reset(const struct shell *sh, size_t argc, char **argv)
@@ -28,44 +29,16 @@ static int cmd_modem_reset(const struct shell *sh, size_t argc, char **argv)
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 
-	int ret = modem_board_reset_pulse();
-	if (ret != 0) {
-		shell_error(sh, "reset failed: %d", ret);
-		return ret;
-	}
-
-	shell_print(sh, "OK");
-	return 0;
+	struct modem_shell_ops ops = shellOps;
+	ops.ctx = (void *)sh;
+	return modem_shell_cmd_reset_core(&ops);
 }
 
 static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
 {
-	if (argc < 2) {
-		shell_error(sh, "usage: modem power <on|off|cycle>");
-		return -EINVAL;
-	}
-
-	const char *op = argv[1];
-	int ret = 0;
-
-	if (strcmp(op, "on") == 0) {
-		ret = modem_board_power_on();
-	} else if (strcmp(op, "off") == 0) {
-		ret = modem_board_power_off();
-	} else if (strcmp(op, "cycle") == 0) {
-		ret = modem_board_power_cycle();
-	} else {
-		shell_error(sh, "unknown power op: %s", op);
-		return -EINVAL;
-	}
-
-	if (ret != 0) {
-		shell_error(sh, "power %s failed: %d", op, ret);
-		return ret;
-	}
-
-	shell_print(sh, "OK");
-	return 0;
+	struct modem_shell_ops ops = shellOps;
+	ops.ctx = (void *)sh;
+	return modem_shell_cmd_power_core(&ops, argc, argv);
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,

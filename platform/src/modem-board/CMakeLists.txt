@@ -12,7 +12,10 @@ add_library(${LIBRARY_NAME_OBJ} OBJECT)
 
 target_include_directories(${LIBRARY_NAME_OBJ} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_sources(${LIBRARY_NAME_OBJ} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/modem-board.c)
+target_sources(${LIBRARY_NAME_OBJ} PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/modem-board.c
+  ${CMAKE_CURRENT_LIST_DIR}/modem-board-core.c
+)
 
 target_link_libraries(${LIBRARY_NAME_OBJ} PUBLIC platform_src_modem_board) # Link object library against interface library
 
