@@ -9,6 +9,7 @@ static const int T_PWR_OFF_PULSE_MS = 1500;
 static const int T_POWER_CYCLE_DELAY_MS = 500;
 static const int T_POST_ON_DELAY_MS = 100;
 static const int T_RESET_PULSE_MS = 200;
+static const int MODEM_VGPIO_ON_THRESHOLD_MV = 900;
 
 static int pwr_on_n_pulse(const struct modem_board_ops *ops, int pulse_ms)
 {
@@ -99,5 +100,7 @@ int modem_board_get_status_core(const struct modem_board_ops *ops, struct modem_
 	out->rail_en = ops->get_rail_en(ops->ctx);
 	out->pwr_on_n = ops->get_pwr_on_n(ops->ctx);
 	out->rst_n = ops->get_rst_n(ops->ctx);
+	out->vgpio_mv = ops->get_vgpio_mv(ops->ctx);
+	out->modem_state_on = (out->vgpio_mv >= MODEM_VGPIO_ON_THRESHOLD_MV);
 	return 0;
 }
