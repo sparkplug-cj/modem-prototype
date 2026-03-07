@@ -16,6 +16,7 @@ struct modem_board_ops {
 	int (*get_rail_en)(void *ctx);
 	int (*get_pwr_on_n)(void *ctx);
 	int (*get_rst_n)(void *ctx);
+	int (*get_vgpio_mv)(void *ctx);
 	void (*sleep_ms)(void *ctx, int duration_ms);
 	void *ctx;
 };

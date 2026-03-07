@@ -88,15 +88,26 @@ modem reset
 
 Manual acceptance steps:
 
-- [ ] Run `modem status` and confirm it prints the three control lines:
+- [ ] Run `modem status` and confirm it prints the control lines and VGPIO-derived state:
   - `MODEM_3V8_EN`
   - `MODEM_PWR_ON_N`
   - `MODEM_RST_N`
+  - `VGPIO_mV`
+  - `MODEM_STATE`
+- [ ] With the modem powered off, run `modem status` and confirm:
+  - `MODEM_STATE=OFF`
+  - `VGPIO_mV` is plausibly near 0 mV
 - [ ] Run `modem power on` and confirm:
   - MODEM 3V8 rail is enabled (measure 3V8 on the modem rail if accessible)
   - modem begins booting (e.g., UART activity / status LED, depending on module)
+- [ ] Once the modem is up, run `modem status` and confirm:
+  - `MODEM_STATE=ON`
+  - `VGPIO_mV` is plausibly within the expected VGPIO range (~1.7–1.9 V)
 - [ ] Run `modem reset` and confirm the modem reboots
-- [ ] Run `modem power off` and confirm the modem rail is disabled
+- [ ] Run `modem power off` and confirm:
+  - the modem rail is disabled
+  - a follow-up `modem status` reports `MODEM_STATE=OFF`
+  - `VGPIO_mV` returns plausibly near 0 mV
 
 > Timing notes: the PWR_ON_N pulse widths are currently conservative defaults. Confirm the module’s
 > required timings (on/off pulse, rail settle time) and adjust if needed.
