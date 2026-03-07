@@ -61,7 +61,8 @@ dkms.conf
 
 # Zephyr / build outputs
 control/build/**
-control/test-catch2/build/**
+control/tests/catch2/build/**
+platform/tests/catch2/build/**
 
 # thirdparty sources pulled by west
 thirdparty/**

@@ -8,6 +8,10 @@ manifest:
   remotes:
     - name: jonathan-thomson
       url-base: https://github.com/jonathan-thomson
+    - name: catchorg
+      url-base: https://github.com/catchorg
+    - name: meekrosoft
+      url-base: https://github.com/meekrosoft
 
   projects:
     - name: zephyr
@@ -21,3 +25,13 @@ manifest:
           - hal_nxp
           - picolibc
           - segger
+
+    - name: Catch2
+      remote: catchorg
+      revision: 644821ce28cb25d7992a4d0375b1d83214392592 # v3.9.1
+      path: thirdparty/catch2
+
+    - name: fff
+      remote: meekrosoft
+      revision: 7e09f07e5b262b1cc826189dc5057379e40ce886 # v1.1
+      path: thirdparty/fff
