@@ -10,13 +10,9 @@ This repo is a self-contained **Zephyr west workspace**. Zephyr and modules live
 
 ### Python env (recommended)
 
-Prefer the shared workspace Zephyr environment:
+Activate any Python environment that has a working `west` install available.
 
-```bash
-. /home/node/.openclaw/workspace/tools/zephyr-venv/bin/activate
-```
-
-If you need a repo-local fallback instead:
+For example, a repo-local environment:
 
 ```bash
 python3 -m venv .venv
