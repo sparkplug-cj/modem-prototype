@@ -1,5 +1,7 @@
 # Zephyr app scaffold (west workspace)
 
+[![CI](https://github.com/sparkplug-cj/modem-prototype/actions/workflows/ci.yml/badge.svg)](https://github.com/sparkplug-cj/modem-prototype/actions/workflows/ci.yml)
+
 This repo is a self-contained **Zephyr west workspace**. Zephyr and modules live under `thirdparty/zephyrproject/`.
 
 ## Prerequisites
