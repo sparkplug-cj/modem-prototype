@@ -31,6 +31,9 @@ jobs:
           toolchains: arm-zephyr-eabi
           sdk-version: 0.17.2
 
+      - name: Update west dependencies
+        run: west update
+
       - name: Run platform Catch2 tests
         run: |
           cmake -S app/platform/tests/catch2 -B app/platform/tests/catch2/build
@@ -65,6 +68,9 @@ jobs:
           manifest-file-name: .west/west.yml
           toolchains: arm-zephyr-eabi
           sdk-version: 0.17.2
+
+      - name: Update west dependencies
+        run: west update
 
       - name: Build control firmware
         run: west build app/control -p auto -b control@a4 --shield sense_a3 -d app/control/build
