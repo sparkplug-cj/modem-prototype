@@ -82,7 +82,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
 	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
-	SHELL_CMD_ARG(at, NULL, "Send AT command: at <command>", cmd_modem_at, 2, 0),
+	SHELL_CMD_ARG(at, NULL, "Send AT command, e.g. modem at "ATI"", cmd_modem_at, 2, 0),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );
 
