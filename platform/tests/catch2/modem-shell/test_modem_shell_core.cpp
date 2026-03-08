@@ -388,5 +388,5 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
   char *argv[] = {command, csq};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == -ETIMEDOUT);
-  REQUIRE(capture.lastError == "AT command failed: -110");
+  REQUIRE(capture.lastError == "AT command timed out waiting for modem response");
 }

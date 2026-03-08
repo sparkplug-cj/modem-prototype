@@ -91,7 +91,11 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 
 	ret = ops->modem_at_send(argv[1], response, sizeof(response));
 	if (ret != 0) {
-		ops->error(ops->ctx, "AT command failed: %d", ret);
+		if (ret == -ETIMEDOUT) {
+			ops->error(ops->ctx, "AT command timed out waiting for modem response");
+		} else {
+			ops->error(ops->ctx, "AT command failed: %d", ret);
+		}
 		return ret;
 	}
 
