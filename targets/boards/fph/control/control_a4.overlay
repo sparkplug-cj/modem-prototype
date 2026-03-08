@@ -400,37 +400,48 @@
     };
 
     /* Modem UART on Control A4: LPUART3 (GPIO_EMC_13..16) */
+    // pinmux_lpuart3: pinmux_lpuart3 {
+    //   lpuart3_tx_pin {
+    //     pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>;
+    //     drive-strength = "r0-3";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_rx_pin {
+    //     pinmux = <&iomuxc_gpio_emc_14_lpuart3_rx>;
+    //     bias-pull-up;
+    //     bias-pull-up-value = "47k";
+    //     drive-strength = "disabled";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_cts_pin {
+    //     pinmux = <&iomuxc_gpio_emc_15_lpuart3_cts_b>;
+    //     bias-pull-up;
+    //     bias-pull-up-value = "47k";
+    //     drive-strength = "disabled";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_rts_pin {
+    //     pinmux = <&iomuxc_gpio_emc_16_lpuart3_rts_b>;
+    //     drive-strength = "r0-3";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+    // };
     pinmux_lpuart3: pinmux_lpuart3 {
-      lpuart3_tx_pin {
-        pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>;
-        drive-strength = "r0-3";
-        nxp,speed = "100-mhz";
+      group0 {
+        pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>,
+        <&iomuxc_gpio_emc_14_lpuart3_rx>,      
+        <&iomuxc_gpio_emc_15_lpuart3_cts_b>,     
+        <&iomuxc_gpio_emc_16_lpuart3_rts_b>;     
+        drive-strength = "r0-6";
         slew-rate = "slow";
-      };
-
-      lpuart3_rx_pin {
-        pinmux = <&iomuxc_gpio_emc_14_lpuart3_rx>;
-        bias-pull-up;
-        bias-pull-up-value = "47k";
-        drive-strength = "disabled";
         nxp,speed = "100-mhz";
-        slew-rate = "slow";
-      };
-
-      lpuart3_cts_pin {
-        pinmux = <&iomuxc_gpio_emc_15_lpuart3_cts_b>;
-        bias-pull-up;
-        bias-pull-up-value = "47k";
-        drive-strength = "disabled";
-        nxp,speed = "100-mhz";
-        slew-rate = "slow";
-      };
-
-      lpuart3_rts_pin {
-        pinmux = <&iomuxc_gpio_emc_16_lpuart3_rts_b>;
-        drive-strength = "r0-3";
-        nxp,speed = "100-mhz";
-        slew-rate = "slow";
       };
     };
   
@@ -636,6 +647,7 @@ modem_uart: &lpuart3 {
   current-speed = <115200>;
   pinctrl-0 = <&pinmux_lpuart3>;
   pinctrl-names = "default";
+  hw-flow-control;
 };
 
 &adc1 {
