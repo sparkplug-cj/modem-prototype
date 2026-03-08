@@ -369,7 +369,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(modem_at_send_fake_fake.call_count == 1);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
-  REQUIRE(capture.lastPrint == "Quectel RC7620-1");
+  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1");
   REQUIRE(capture.lastError.empty());
 }
 

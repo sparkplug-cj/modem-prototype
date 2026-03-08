@@ -69,13 +69,11 @@ int modem_at_send(const char *command, char *response, size_t responseSize)
 			}
 
 			if (strstr(response, "\nOK\n") != NULL) {
-				char *ok = strstr(response, "\nOK\n");
-				*ok = '\0';
 				break;
 			}
 
 			if (strstr(response, "\nERROR\n") != NULL) {
-				return -EIO;
+				break;
 			}
 		} else if (ret == -1) {
 			if (sawAnyByte && (k_uptime_get() >= interCharDeadline)) {
