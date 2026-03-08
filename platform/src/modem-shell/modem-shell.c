@@ -1,3 +1,4 @@
+#include <modem-at.h>
 #include <modem-board.h>
 
 #include "modem-shell-core.h"
@@ -39,6 +40,7 @@ static const struct modem_shell_ops shellOps = {
 	.modem_board_power_cycle = modem_board_power_cycle,
 	.modem_board_reset_pulse = modem_board_reset_pulse,
 	.modem_board_get_status = modem_board_get_status,
+	.modem_at_send = modem_at_send,
 	.print = shell_print_adapter,
 	.error = shell_error_adapter,
 };
@@ -70,10 +72,18 @@ static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
 	return modem_shell_cmd_power_core(&ops, argc, argv);
 }
 
+static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
+{
+	struct modem_shell_ops ops = shellOps;
+	ops.ctx = (void *)sh;
+	return modem_shell_cmd_at_core(&ops, argc, argv);
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
 	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
+	SHELL_CMD_ARG(at, NULL, "Send AT command: at <command>", cmd_modem_at, 2, 0),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );
 
