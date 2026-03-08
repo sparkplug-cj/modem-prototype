@@ -25,6 +25,8 @@ struct ShellCapture {
   std::string lastError;
 };
 
+modem_at_diagnostics g_lastDiagnostics = {};
+
 void shell_print_capture(void *ctx, const char *fmt, ...)
 {
   auto *capture = static_cast<ShellCapture *>(ctx);
@@ -56,6 +58,7 @@ void reset_fakes()
   RESET_FAKE(modem_board_get_status_fake);
   RESET_FAKE(modem_at_send_fake);
   FFF_RESET_HISTORY();
+  g_lastDiagnostics = {};
 }
 
 int fake_status_success(struct modem_board_status *out)
@@ -100,6 +103,9 @@ int fake_at_send_success(const char *command, char *response, size_t responseSiz
 {
   (void)command;
   snprintf(response, responseSize, "Quectel RC7620-1");
+  g_lastDiagnostics.bytesReceived = strlen(response);
+  g_lastDiagnostics.sawAnyByte = true;
+  g_lastDiagnostics.exitReason = MODEM_AT_EXIT_INTER_CHAR_TIMEOUT;
   return 0;
 }
 
@@ -109,16 +115,51 @@ int fake_at_send_empty(const char *command, char *response, size_t responseSize)
   if (responseSize > 0) {
     response[0] = '\0';
   }
+  g_lastDiagnostics.bytesReceived = 0;
+  g_lastDiagnostics.sawAnyByte = true;
+  g_lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_OK;
   return 0;
 }
 
 int fake_at_send_echo(const char *command, char *response, size_t responseSize)
 {
   snprintf(response, responseSize, "%s", command);
+  g_lastDiagnostics.bytesReceived = strlen(response);
+  g_lastDiagnostics.sawAnyByte = true;
+  g_lastDiagnostics.exitReason = MODEM_AT_EXIT_INTER_CHAR_TIMEOUT;
   return 0;
 }
 
 } // namespace
+
+extern "C" void modem_at_get_last_diagnostics(struct modem_at_diagnostics *diagnostics)
+{
+  if (diagnostics != nullptr) {
+    *diagnostics = g_lastDiagnostics;
+  }
+}
+
+extern "C" const char *modem_at_exit_reason_str(enum modem_at_exit_reason reason)
+{
+  switch (reason) {
+  case MODEM_AT_EXIT_NONE:
+    return "none";
+  case MODEM_AT_EXIT_MATCH_OK:
+    return "matched-ok";
+  case MODEM_AT_EXIT_MATCH_ERROR:
+    return "matched-error";
+  case MODEM_AT_EXIT_INTER_CHAR_TIMEOUT:
+    return "inter-char-timeout";
+  case MODEM_AT_EXIT_OVERALL_TIMEOUT:
+    return "overall-timeout";
+  case MODEM_AT_EXIT_BUFFER_FULL:
+    return "buffer-full";
+  case MODEM_AT_EXIT_UART_ERROR:
+    return "uart-error";
+  default:
+    return "unknown";
+  }
+}
 
 TEST_CASE("modem status prints the current board state", "[modem-shell]")
 {
@@ -375,7 +416,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(modem_at_send_fake_fake.call_count == 1);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
-  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1");
+  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1\n[modem-at] exit=inter-char-timeout bytes=16");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -403,7 +444,7 @@ TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
   char *argv[] = {command, ati};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
-  REQUIRE(capture.lastPrint == "[empty modem response]");
+  REQUIRE(capture.lastPrint == "[empty modem response]\n[modem-at] exit=matched-ok bytes=0");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -431,7 +472,7 @@ TEST_CASE("modem at reports echo-only modem response explicitly", "[modem-shell]
   char *argv[] = {command, ati};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
-  REQUIRE(capture.lastPrint == "[echo only]\nATI");
+  REQUIRE(capture.lastPrint == "[echo only]\nATI\n[modem-at] exit=inter-char-timeout bytes=3");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -440,6 +481,9 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
   reset_fakes();
   modem_board_get_status_fake_fake.custom_fake = fake_status_success;
   modem_at_send_fake_fake.return_val = -ETIMEDOUT;
+  g_lastDiagnostics.bytesReceived = 0;
+  g_lastDiagnostics.sawAnyByte = false;
+  g_lastDiagnostics.exitReason = MODEM_AT_EXIT_OVERALL_TIMEOUT;
   ShellCapture capture;
 
   modem_shell_ops ops = {
@@ -459,5 +503,5 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
   char *argv[] = {command, csq};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == -ETIMEDOUT);
-  REQUIRE(capture.lastError == "AT command timed out waiting for modem response");
+  REQUIRE(capture.lastError == "AT command timed out waiting for modem response (exit=overall-timeout, bytes=0)");
 }

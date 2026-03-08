@@ -10,7 +10,7 @@
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
 	const struct shell *sh = ctx;
-	char buffer[128];
+	char buffer[512];
 	va_list args;
 
 	va_start(args, fmt);
@@ -23,7 +23,7 @@ static void shell_print_adapter(void *ctx, const char *fmt, ...)
 static void shell_error_adapter(void *ctx, const char *fmt, ...)
 {
 	const struct shell *sh = ctx;
-	char buffer[128];
+	char buffer[256];
 	va_list args;
 
 	va_start(args, fmt);

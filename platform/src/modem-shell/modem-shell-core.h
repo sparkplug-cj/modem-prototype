@@ -1,5 +1,6 @@
 #pragma once
 
+#include "modem-at.h"
 #include "modem-board.h"
 
 #include <stddef.h>
