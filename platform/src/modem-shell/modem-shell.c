@@ -1,11 +1,10 @@
-#include <modem-at.h>
-#include <modem-board.h>
-
 #include "modem-shell-core.h"
+
+#include "modem-at.h"
+#include "modem-board.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-
 #include <zephyr/shell/shell.h>
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
