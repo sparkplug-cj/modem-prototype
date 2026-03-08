@@ -9,10 +9,24 @@
 #include <zephyr/kernel.h>
 
 #define MODEM_UART_NODE DT_NODELABEL(modem_uart)
-#define MODEM_AT_RESPONSE_TIMEOUT_MS 2000
-#define MODEM_AT_INTER_CHAR_TIMEOUT_MS 100
+#define MODEM_AT_RESPONSE_TIMEOUT_MS 5000
+#define MODEM_AT_INTER_CHAR_TIMEOUT_MS 200
+#define MODEM_AT_PRE_SEND_FLUSH_MS 50
 
 static const struct device *const modemUart = DEVICE_DT_GET(MODEM_UART_NODE);
+
+static void modem_at_flush_rx(void)
+{
+	int64_t deadline = k_uptime_get() + MODEM_AT_PRE_SEND_FLUSH_MS;
+
+	while (k_uptime_get() < deadline) {
+		unsigned char ch;
+		int ret = uart_poll_in(modemUart, &ch);
+		if (ret != 0) {
+			k_msleep(1);
+		}
+	}
+}
 
 static int response_append(char *response, size_t responseSize, size_t *length, unsigned char ch)
 {
@@ -43,6 +57,7 @@ int modem_at_send(const char *command, char *response, size_t responseSize)
 	}
 
 	response[0] = '\0';
+	modem_at_flush_rx();
 
 	for (const char *p = command; *p != '\0'; ++p) {
 		uart_poll_out(modemUart, (unsigned char)*p);

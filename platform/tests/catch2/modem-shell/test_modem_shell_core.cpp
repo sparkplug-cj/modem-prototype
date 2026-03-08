@@ -112,6 +112,12 @@ int fake_at_send_empty(const char *command, char *response, size_t responseSize)
   return 0;
 }
 
+int fake_at_send_echo(const char *command, char *response, size_t responseSize)
+{
+  snprintf(response, responseSize, "%s", command);
+  return 0;
+}
+
 } // namespace
 
 TEST_CASE("modem status prints the current board state", "[modem-shell]")
@@ -398,6 +404,34 @@ TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(capture.lastPrint == "[empty modem response]");
+  REQUIRE(capture.lastError.empty());
+}
+
+TEST_CASE("modem at reports echo-only modem response explicitly", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.custom_fake = fake_at_send_echo;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+  };
+
+  char command[] = "at";
+  char ati[] = "ATI";
+  char *argv[] = {command, ati};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
+  REQUIRE(capture.lastPrint == "[echo only]\nATI");
   REQUIRE(capture.lastError.empty());
 }
 

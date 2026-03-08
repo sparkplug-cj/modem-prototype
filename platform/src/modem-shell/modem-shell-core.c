@@ -104,6 +104,11 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return 0;
 	}
 
+	if (strcmp(response, argv[1]) == 0) {
+		ops->print(ops->ctx, "[echo only]\n%s", response);
+		return 0;
+	}
+
 	ops->print(ops->ctx, "[raw modem response]\n%s", response);
 	return 0;
 }
