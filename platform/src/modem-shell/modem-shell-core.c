@@ -99,6 +99,11 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return ret;
 	}
 
+	if (response[0] == '\0') {
+		ops->print(ops->ctx, "[empty modem response]");
+		return 0;
+	}
+
 	ops->print(ops->ctx, "%s", response);
 	return 0;
 }
