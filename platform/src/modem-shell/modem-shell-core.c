@@ -66,3 +66,49 @@ int modem_shell_cmd_power_core(const struct modem_shell_ops *ops, size_t argc, c
 	ops->print(ops->ctx, "OK");
 	return 0;
 }
+
+int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char **argv)
+{
+	struct modem_board_status st;
+	char response[256];
+	int ret;
+
+	if (argc < 2U) {
+		ops->error(ops->ctx, "usage: at <command>");
+		return -EINVAL;
+	}
+
+	ret = ops->modem_board_get_status(&st);
+	if (ret != 0) {
+		ops->error(ops->ctx, "status read failed: %d", ret);
+		return ret;
+	}
+
+	if (st.rail_en != 1) {
+		ops->error(ops->ctx, "modem is not powered");
+		return -EHOSTDOWN;
+	}
+
+	ret = ops->modem_at_send(argv[1], response, sizeof(response));
+	if (ret != 0) {
+		if (ret == -ETIMEDOUT) {
+			ops->error(ops->ctx, "AT command timed out waiting for modem response");
+		} else {
+			ops->error(ops->ctx, "AT command failed: %d", ret);
+		}
+		return ret;
+	}
+
+	if (response[0] == '\0') {
+		ops->print(ops->ctx, "[empty modem response]");
+		return 0;
+	}
+
+	if (strcmp(response, argv[1]) == 0) {
+		ops->print(ops->ctx, "[echo only]\n%s", response);
+		return 0;
+	}
+
+	ops->print(ops->ctx, "[raw modem response]\n%s", response);
+	return 0;
+}

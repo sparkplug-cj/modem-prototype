@@ -145,6 +145,12 @@ If a future Catch2 test tree appears, prefer its local README/build script for e
 - Keep board/shield assumptions explicit (this repo currently expects one shield in `CMakeFiles/shields.cmake`).
 - Prefer target-scoped settings (`target_sources`, `target_compile_options`) over global mutation.
 - Do not hardcode absolute developer-specific paths.
+- When adding a new software unit under `platform/src/<unit>/`, follow the established two-part pattern used by existing units:
+  - add that unit's own `CMakeLists.txt` under `platform/src/<unit>/`
+  - **also** register the unit in `platform/CMakeFiles/build-platform-targets.cmake` with `add_subdirectory(...)`
+- The `platform/src/CMakeLists.txt` file is **not** the authoritative place that brings platform units into the application build; `platform/CMakeFiles/build-platform-targets.cmake` is. If a new unit is missing there, CI can fail in confusing ways because the target graph is incomplete even when the unit-local CMake looks correct.
+- The same mental model applies to control-side units too: do not assume that adding a `CMakeLists.txt` somewhere under `control/` is enough by itself. Verify the unit is actually registered from the authoritative parent build file that assembles the app target and its subdirectories.
+- For platform and control units, match the existing repo pattern before inventing a new linkage shape: interface target for public includes/usage requirements, object target for compiled sources, and final app linkage through the explicitly registered unit targets.
 
 ## Kconfig / Devicetree Guidelines
 

@@ -636,7 +636,6 @@ modem_uart: &lpuart3 {
   current-speed = <115200>;
   pinctrl-0 = <&pinmux_lpuart3>;
   pinctrl-names = "default";
-  hw-flow-control;
 };
 
 &adc1 {
