@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,9 @@ struct modem_at_diagnostics {
 };
 
 int modem_at_send(const char *command, char *response, size_t responseSize);
+int modem_at_uart_write(const uint8_t *data, size_t length);
+int modem_at_uart_read_byte(uint8_t *byte);
+bool modem_at_uart_is_ready(void);
 void modem_at_get_last_diagnostics(struct modem_at_diagnostics *diagnostics);
 const char *modem_at_exit_reason_str(enum modem_at_exit_reason reason);
 

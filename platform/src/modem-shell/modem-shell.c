@@ -3,9 +3,18 @@
 #include "modem-at.h"
 #include "modem-board.h"
 
+#include <errno.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
+
+#include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+
+#define MODEM_PASSTHROUGH_STACK_SIZE 1024
+#define MODEM_PASSTHROUGH_THREAD_PRIORITY 7
+#define MODEM_PASSTHROUGH_ESCAPE_PREFIX 0x18u
+#define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
@@ -44,6 +53,86 @@ static const struct modem_shell_ops shellOps = {
 	.error = shell_error_adapter,
 };
 
+static const struct shell *passthroughShell;
+static bool passthroughActive;
+static uint8_t passthroughTail;
+static K_THREAD_STACK_DEFINE(passthroughStack, MODEM_PASSTHROUGH_STACK_SIZE);
+static struct k_thread passthroughThread;
+static bool passthroughThreadStarted;
+
+static void modem_passthrough_stop(void)
+{
+	if (!passthroughActive) {
+		return;
+	}
+
+	passthroughActive = false;
+	shell_set_bypass(passthroughShell, NULL);
+	shell_print(passthroughShell, "\r\n[modem passthrough disabled]");
+	passthroughShell = NULL;
+	passthroughTail = 0U;
+}
+
+static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg1);
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	while (1) {
+		if (!passthroughActive || (passthroughShell == NULL)) {
+			k_msleep(20);
+			continue;
+		}
+
+		uint8_t byte;
+		int ret = modem_at_uart_read_byte(&byte);
+		if (ret == 0) {
+			shell_fprintf_normal(passthroughShell, "%c", (char)byte);
+		} else if (ret == -1) {
+			k_msleep(10);
+		} else {
+			shell_error(passthroughShell, "\r\n[modem passthrough RX error: %d]", ret);
+			modem_passthrough_stop();
+		}
+	}
+}
+
+static void modem_passthrough_bypass_cb(const struct shell *sh, uint8_t *data, size_t len)
+{
+	bool escape = false;
+
+	if ((len == 0U) || !passthroughActive) {
+		return;
+	}
+
+	if ((passthroughTail == MODEM_PASSTHROUGH_ESCAPE_PREFIX) &&
+		(data[0] == MODEM_PASSTHROUGH_ESCAPE_SUFFIX)) {
+		escape = true;
+	} else {
+		for (size_t i = 0; i + 1U < len; ++i) {
+			if ((data[i] == MODEM_PASSTHROUGH_ESCAPE_PREFIX) &&
+			    (data[i + 1U] == MODEM_PASSTHROUGH_ESCAPE_SUFFIX)) {
+				escape = true;
+				break;
+			}
+		}
+	}
+
+	if (escape) {
+		modem_passthrough_stop();
+		return;
+	}
+
+	passthroughTail = data[len - 1U];
+
+	int ret = modem_at_uart_write(data, len);
+	if (ret != 0) {
+		shell_error(sh, "\r\n[modem passthrough TX error: %d]", ret);
+		modem_passthrough_stop();
+	}
+}
+
 static int cmd_modem_status(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -78,11 +167,63 @@ static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 	return modem_shell_cmd_at_core(&ops, argc, argv);
 }
 
+static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+
+	struct modem_board_status st;
+	int ret = modem_board_get_status(&st);
+	if (ret != 0) {
+		shell_error(sh, "status read failed: %d", ret);
+		return ret;
+	}
+
+	if (st.rail_en != 1) {
+		shell_error(sh, "modem is not powered");
+		return -EHOSTDOWN;
+	}
+
+	if (!modem_at_uart_is_ready()) {
+		shell_error(sh, "modem UART device is not ready");
+		return -ENODEV;
+	}
+
+	if (passthroughActive) {
+		shell_error(sh, "modem passthrough already active");
+		return -EBUSY;
+	}
+
+	if (!passthroughThreadStarted) {
+		k_thread_create(&passthroughThread,
+				passthroughStack,
+				K_THREAD_STACK_SIZEOF(passthroughStack),
+				modem_passthrough_rx_thread,
+				NULL,
+				NULL,
+				NULL,
+				MODEM_PASSTHROUGH_THREAD_PRIORITY,
+				0,
+				K_NO_WAIT);
+		passthroughThreadStarted = true;
+	}
+
+	passthroughShell = sh;
+	passthroughTail = 0U;
+	passthroughActive = true;
+	shell_print(sh, "Entering modem UART passthrough. Press Ctrl-X then Ctrl-Q to exit.");
+	shell_set_bypass(sh, modem_passthrough_bypass_cb);
+	return 0;
+}
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
 	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
 	SHELL_CMD_ARG(at, NULL, "Send AT command: at <command>", cmd_modem_at, 2, 0),
+	SHELL_CMD(passthrough, NULL,
+		  "Raw UART passthrough to modem. Type directly; Ctrl-X then Ctrl-Q exits.",
+		  cmd_modem_passthrough),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );
 

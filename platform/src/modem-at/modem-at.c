@@ -82,6 +82,41 @@ static int response_append(char *response, size_t responseSize, size_t *length, 
 	return 0;
 }
 
+bool modem_at_uart_is_ready(void)
+{
+	return device_is_ready(modemUart);
+}
+
+int modem_at_uart_write(const uint8_t *data, size_t length)
+{
+	if ((data == NULL) && (length > 0U)) {
+		return -EINVAL;
+	}
+
+	if (!modem_at_uart_is_ready()) {
+		return -ENODEV;
+	}
+
+	for (size_t i = 0; i < length; ++i) {
+		uart_poll_out(modemUart, data[i]);
+	}
+
+	return 0;
+}
+
+int modem_at_uart_read_byte(uint8_t *byte)
+{
+	if (byte == NULL) {
+		return -EINVAL;
+	}
+
+	if (!modem_at_uart_is_ready()) {
+		return -ENODEV;
+	}
+
+	return uart_poll_in(modemUart, byte);
+}
+
 int modem_at_send(const char *command, char *response, size_t responseSize)
 {
 	int ret;
