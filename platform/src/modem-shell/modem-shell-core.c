@@ -14,14 +14,14 @@ int modem_shell_cmd_status_core(const struct modem_shell_ops *ops)
 
 	if (st.vgpio_mv < 0) {
 		ops->print(ops->ctx,
-			"MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d, VGPIO_mV=ERR(%d), MODEM_STATE=OFF",
-			st.rail_en, st.pwr_on_n, st.rst_n, st.vgpio_mv);
+			"MODEM_3V8_EN=%d, MODEM_PWR_ON=%d, MODEM_RST=%d, VGPIO_mV=ERR(%d), MODEM_STATE=OFF",
+			st.rail_en, st.pwr_on, st.rst, st.vgpio_mv);
 		return 0;
 	}
 
 	ops->print(ops->ctx,
-		"MODEM_3V8_EN=%d, MODEM_PWR_ON_N=%d, MODEM_RST_N=%d, VGPIO_mV=%d, MODEM_STATE=%s",
-		st.rail_en, st.pwr_on_n, st.rst_n, st.vgpio_mv, st.modem_state_on ? "ON" : "OFF");
+		"MODEM_3V8_EN=%d, MODEM_PWR_ON=%d, MODEM_RST=%d, VGPIO_mV=%d, MODEM_STATE=%s",
+		st.rail_en, st.pwr_on, st.rst, st.vgpio_mv, st.modem_state_on ? "ON" : "OFF");
 	return 0;
 }
 

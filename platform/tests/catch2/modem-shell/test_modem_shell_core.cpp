@@ -64,8 +64,8 @@ void reset_fakes()
 int fake_status_success(struct modem_board_status *out)
 {
   out->rail_en = 1;
-  out->pwr_on_n = 0;
-  out->rst_n = 1;
+  out->pwr_on = 0;
+  out->rst = 1;
   out->vgpio_mv = 1800;
   out->modem_state_on = true;
   return 0;
@@ -74,8 +74,8 @@ int fake_status_success(struct modem_board_status *out)
 int fake_status_off(struct modem_board_status *out)
 {
   out->rail_en = 1;
-  out->pwr_on_n = 0;
-  out->rst_n = 1;
+  out->pwr_on = 0;
+  out->rst = 1;
   out->vgpio_mv = 0;
   out->modem_state_on = false;
   return 0;
@@ -84,8 +84,8 @@ int fake_status_off(struct modem_board_status *out)
 int fake_status_vgpio_error(struct modem_board_status *out)
 {
   out->rail_en = 1;
-  out->pwr_on_n = 0;
-  out->rst_n = 1;
+  out->pwr_on = 0;
+  out->rst = 1;
   out->vgpio_mv = -EIO;
   out->modem_state_on = false;
   return 0;
@@ -94,8 +94,8 @@ int fake_status_vgpio_error(struct modem_board_status *out)
 int fake_status_unpowered(struct modem_board_status *out)
 {
   out->rail_en = 0;
-  out->pwr_on_n = 1;
-  out->rst_n = 0;
+  out->pwr_on = 1;
+  out->rst = 0;
   return 0;
 }
 
@@ -180,7 +180,7 @@ TEST_CASE("modem status prints the current board state", "[modem-shell]")
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
-  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON_N=0, MODEM_RST_N=1, VGPIO_mV=1800, MODEM_STATE=ON");
+  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON=0, MODEM_RST=1, VGPIO_mV=1800, MODEM_STATE=ON");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -203,7 +203,7 @@ TEST_CASE("modem status prints OFF when VGPIO is below threshold", "[modem-shell
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
-  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON_N=0, MODEM_RST_N=1, VGPIO_mV=0, MODEM_STATE=OFF");
+  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON=0, MODEM_RST=1, VGPIO_mV=0, MODEM_STATE=OFF");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -249,7 +249,7 @@ TEST_CASE("modem status prints partial status when VGPIO read fails", "[modem-sh
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
-  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON_N=0, MODEM_RST_N=1, VGPIO_mV=ERR(-5), MODEM_STATE=OFF");
+  REQUIRE(capture.lastPrint == "MODEM_3V8_EN=1, MODEM_PWR_ON=0, MODEM_RST=1, VGPIO_mV=ERR(-5), MODEM_STATE=OFF");
   REQUIRE(capture.lastError.empty());
 }
 

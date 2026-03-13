@@ -16,25 +16,25 @@ LOG_MODULE_REGISTER(modem_board, LOG_LEVEL_INF);
 #if !DT_NODE_HAS_PROP(MODEM_NODE, modem_3v8_en_gpios)
 #error "Missing /zephyr,user modem-3v8-en-gpios devicetree property"
 #endif
-#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_pwr_on_n_gpios)
-#error "Missing /zephyr,user modem-pwr-on-n-gpios devicetree property"
+#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_pwr_on_gpios)
+#error "Missing /zephyr,user modem-pwr-on-gpios devicetree property"
 #endif
-#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_rst_n_gpios)
-#error "Missing /zephyr,user modem-rst-n-gpios devicetree property"
+#if !DT_NODE_HAS_PROP(MODEM_NODE, modem_rst_gpios)
+#error "Missing /zephyr,user modem-rst-gpios devicetree property"
 #endif
 #if !DT_NODE_HAS_PROP(MODEM_NODE, io_channels)
 #error "Missing /zephyr,user io-channels devicetree property"
 #endif
 
 static const struct gpio_dt_spec rail_en = GPIO_DT_SPEC_GET(MODEM_NODE, modem_3v8_en_gpios);
-static const struct gpio_dt_spec pwr_on_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_pwr_on_n_gpios);
-static const struct gpio_dt_spec rst_n = GPIO_DT_SPEC_GET(MODEM_NODE, modem_rst_n_gpios);
+static const struct gpio_dt_spec pwr_on = GPIO_DT_SPEC_GET(MODEM_NODE, modem_pwr_on_gpios);
+static const struct gpio_dt_spec rst = GPIO_DT_SPEC_GET(MODEM_NODE, modem_rst_gpios);
 static const struct adc_dt_spec vgpio = ADC_DT_SPEC_GET_BY_NAME(MODEM_NODE, vgpio);
 
 static int ensure_ready(void *ctx)
 {
 	ARG_UNUSED(ctx);
-	if (!device_is_ready(rail_en.port) || !device_is_ready(pwr_on_n.port) || !device_is_ready(rst_n.port)
+	if (!device_is_ready(rail_en.port) || !device_is_ready(pwr_on.port) || !device_is_ready(rst.port)
 		|| !adc_is_ready_dt(&vgpio)) {
 		return -ENODEV;
 	}
@@ -62,13 +62,13 @@ static int set_rail_en(void *ctx, int value)
 static int set_pwr_on_asserted(void *ctx, bool asserted)
 {
 	ARG_UNUSED(ctx);
-	return gpio_dt_set_active(&pwr_on_n, asserted);
+	return gpio_dt_set_active(&pwr_on, asserted);
 }
 
 static int set_rst_asserted(void *ctx, bool asserted)
 {
 	ARG_UNUSED(ctx);
-	return gpio_dt_set_active(&rst_n, asserted);
+	return gpio_dt_set_active(&rst, asserted);
 }
 
 static int get_rail_en(void *ctx)
@@ -77,16 +77,16 @@ static int get_rail_en(void *ctx)
 	return gpio_pin_get_dt(&rail_en);
 }
 
-static int get_pwr_on_n(void *ctx)
+static int get_pwr_on(void *ctx)
 {
 	ARG_UNUSED(ctx);
-	return gpio_pin_get_dt(&pwr_on_n);
+	return gpio_pin_get_dt(&pwr_on);
 }
 
-static int get_rst_n(void *ctx)
+static int get_rst(void *ctx)
 {
 	ARG_UNUSED(ctx);
-	return gpio_pin_get_dt(&rst_n);
+	return gpio_pin_get_dt(&rst);
 }
 
 static int get_vgpio_mv(void *ctx)
@@ -136,8 +136,8 @@ static const struct modem_board_ops boardOps = {
 	.set_pwr_on_asserted = set_pwr_on_asserted,
 	.set_rst_asserted = set_rst_asserted,
 	.get_rail_en = get_rail_en,
-	.get_pwr_on_n = get_pwr_on_n,
-	.get_rst_n = get_rst_n,
+	.get_pwr_on = get_pwr_on,
+	.get_rst = get_rst,
 	.get_vgpio_mv = get_vgpio_mv,
 	.sleep_ms = sleep_ms,
 	.ctx = NULL,

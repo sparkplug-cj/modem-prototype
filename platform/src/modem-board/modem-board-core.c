@@ -11,7 +11,7 @@ static const int T_POST_ON_DELAY_MS = 100;
 static const int T_RESET_PULSE_MS = 200;
 static const int MODEM_VGPIO_ON_THRESHOLD_MV = 900;
 
-static int pwr_on_n_pulse(const struct modem_board_ops *ops, int pulse_ms)
+static int pwr_on_pulse(const struct modem_board_ops *ops, int pulse_ms)
 {
 	int ret = ops->set_pwr_on_asserted(ops->ctx, true);
 	if (ret != 0) {
@@ -35,7 +35,7 @@ int modem_board_power_on_core(const struct modem_board_ops *ops)
 	}
 	ops->sleep_ms(ops->ctx, T_RAIL_SETTLE_MS);
 
-	ret = pwr_on_n_pulse(ops, T_PWR_ON_PULSE_MS);
+	ret = pwr_on_pulse(ops, T_PWR_ON_PULSE_MS);
 	if (ret != 0) {
 		return ret;
 	}
@@ -51,7 +51,7 @@ int modem_board_power_off_core(const struct modem_board_ops *ops)
 		return ret;
 	}
 
-	ret = pwr_on_n_pulse(ops, T_PWR_OFF_PULSE_MS);
+	ret = pwr_on_pulse(ops, T_PWR_OFF_PULSE_MS);
 	if (ret != 0) {
 		return ret;
 	}
@@ -98,8 +98,8 @@ int modem_board_get_status_core(const struct modem_board_ops *ops, struct modem_
 	}
 
 	out->rail_en = ops->get_rail_en(ops->ctx);
-	out->pwr_on_n = ops->get_pwr_on_n(ops->ctx);
-	out->rst_n = ops->get_rst_n(ops->ctx);
+	out->pwr_on = ops->get_pwr_on(ops->ctx);
+	out->rst = ops->get_rst(ops->ctx);
 	out->vgpio_mv = ops->get_vgpio_mv(ops->ctx);
 	out->modem_state_on = (out->vgpio_mv >= MODEM_VGPIO_ON_THRESHOLD_MV);
 	return 0;
