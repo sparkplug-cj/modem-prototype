@@ -130,6 +130,43 @@ int fake_at_send_echo(const char *command, char *response, size_t responseSize)
   return 0;
 }
 
+int fake_at_send_sync_then_disable_sleep(const char *command, char *response, size_t responseSize)
+{
+  if (std::string(command) == "AT") {
+    snprintf(response, responseSize, "OK");
+    g_lastDiagnostics.bytesReceived = strlen(response);
+    g_lastDiagnostics.sawAnyByte = true;
+    g_lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_OK;
+    return 0;
+  }
+
+  if (std::string(command) == "AT+KSLEEP=2") {
+    snprintf(response, responseSize, "OK");
+    g_lastDiagnostics.bytesReceived = strlen(response);
+    g_lastDiagnostics.sawAnyByte = true;
+    g_lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_OK;
+    return 0;
+  }
+
+  return -EINVAL;
+}
+
+int fake_at_send_sync_then_fail_disable_sleep(const char *command, char *response, size_t responseSize)
+{
+  if (std::string(command) == "AT") {
+    return fake_at_send_sync_then_disable_sleep(command, response, responseSize);
+  }
+
+  if (std::string(command) == "AT+KSLEEP=2") {
+    g_lastDiagnostics.bytesReceived = 0;
+    g_lastDiagnostics.sawAnyByte = false;
+    g_lastDiagnostics.exitReason = MODEM_AT_EXIT_UART_ERROR;
+    return -EIO;
+  }
+
+  return -EINVAL;
+}
+
 } // namespace
 
 extern "C" void modem_at_get_last_diagnostics(struct modem_at_diagnostics *diagnostics)
@@ -279,6 +316,7 @@ TEST_CASE("modem reset prints OK on success", "[modem-shell]")
 TEST_CASE("modem power validates usage and dispatches requested operation", "[modem-shell]")
 {
   reset_fakes();
+  modem_at_send_fake_fake.custom_fake = fake_at_send_sync_then_disable_sleep;
   ShellCapture capture;
 
   modem_shell_ops ops = {
@@ -299,6 +337,9 @@ TEST_CASE("modem power validates usage and dispatches requested operation", "[mo
 
   REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == 0);
   REQUIRE(modem_board_power_on_fake_fake.call_count == 1);
+  REQUIRE(modem_at_send_fake_fake.call_count == 2);
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[0]) == "AT");
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[1]) == "AT+KSLEEP=2");
   REQUIRE(capture.lastPrint == "OK");
 
   capture = {};
@@ -337,6 +378,41 @@ TEST_CASE("modem power reports unknown operations and downstream failures", "[mo
   REQUIRE(modem_shell_cmd_power_core(&ops, 2, cycleArgv) == -EIO);
   REQUIRE(modem_board_power_cycle_fake_fake.call_count == 1);
   REQUIRE(capture.lastError == "power cycle failed: -5");
+}
+
+TEST_CASE("modem power reports AT sync and KSLEEP failures after power on", "[modem-shell]")
+{
+  reset_fakes();
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+  };
+
+  char command[] = "power";
+  char on[] = "on";
+  char *argv[] = {command, on};
+
+  modem_at_send_fake_fake.return_val = -ETIMEDOUT;
+  REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == -ETIMEDOUT);
+  REQUIRE(modem_at_send_fake_fake.call_count == 3);
+  REQUIRE(capture.lastError == "AT sync failed after power-on: -110");
+
+  reset_fakes();
+  capture = {};
+  modem_at_send_fake_fake.custom_fake = fake_at_send_sync_then_fail_disable_sleep;
+
+  REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == -EIO);
+  REQUIRE(modem_at_send_fake_fake.call_count == 2);
+  REQUIRE(capture.lastError == "failed to disable modem sleep: -5");
 }
 
 TEST_CASE("modem at validates usage", "[modem-shell]")

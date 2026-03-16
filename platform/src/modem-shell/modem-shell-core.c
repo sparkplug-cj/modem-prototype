@@ -3,6 +3,36 @@
 #include <errno.h>
 #include <string.h>
 
+static const int MODEM_AT_SYNC_RETRIES = 3;
+static const char *const MODEM_AT_SYNC_COMMAND = "AT";
+static const char *const MODEM_AT_DISABLE_SLEEP_COMMAND = "AT+KSLEEP=2";
+
+static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops *ops)
+{
+	char response[256];
+	int ret = -ETIMEDOUT;
+
+	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
+		ret = ops->modem_at_send(MODEM_AT_SYNC_COMMAND, response, sizeof(response));
+		if (ret == 0) {
+			break;
+		}
+	}
+
+	if (ret != 0) {
+		ops->error(ops->ctx, "AT sync failed after power-on: %d", ret);
+		return ret;
+	}
+
+	ret = ops->modem_at_send(MODEM_AT_DISABLE_SLEEP_COMMAND, response, sizeof(response));
+	if (ret != 0) {
+		ops->error(ops->ctx, "failed to disable modem sleep: %d", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
 int modem_shell_cmd_status_core(const struct modem_shell_ops *ops)
 {
 	struct modem_board_status st;
@@ -47,12 +77,16 @@ int modem_shell_cmd_power_core(const struct modem_shell_ops *ops, size_t argc, c
 	const char *op = argv[1];
 	int ret = 0;
 
+	bool shouldDisableSleep = false;
+
 	if (strcmp(op, "on") == 0) {
 		ret = ops->modem_board_power_on();
+		shouldDisableSleep = true;
 	} else if (strcmp(op, "off") == 0) {
 		ret = ops->modem_board_power_off();
 	} else if (strcmp(op, "cycle") == 0) {
 		ret = ops->modem_board_power_cycle();
+		shouldDisableSleep = true;
 	} else {
 		ops->error(ops->ctx, "unknown power op: %s", op);
 		return -EINVAL;
@@ -61,6 +95,13 @@ int modem_shell_cmd_power_core(const struct modem_shell_ops *ops, size_t argc, c
 	if (ret != 0) {
 		ops->error(ops->ctx, "power %s failed: %d", op, ret);
 		return ret;
+	}
+
+	if (shouldDisableSleep) {
+		ret = modem_shell_disable_sleep_after_power_on(ops);
+		if (ret != 0) {
+			return ret;
+		}
 	}
 
 	ops->print(ops->ctx, "OK");
