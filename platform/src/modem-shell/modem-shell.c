@@ -42,6 +42,11 @@ static void shell_error_adapter(void *ctx, const char *fmt, ...)
 	shell_fprintf_error(sh, "%s\n", buffer);
 }
 
+static void shell_sleep_ms_adapter(int32_t durationMs)
+{
+	k_msleep(durationMs);
+}
+
 static const struct modem_shell_ops shellOps = {
 	.modem_board_power_on = modem_board_power_on,
 	.modem_board_power_off = modem_board_power_off,
@@ -49,6 +54,7 @@ static const struct modem_shell_ops shellOps = {
 	.modem_board_reset_pulse = modem_board_reset_pulse,
 	.modem_board_get_status = modem_board_get_status,
 	.modem_at_send = modem_at_send,
+	.sleep_ms = shell_sleep_ms_adapter,
 	.print = shell_print_adapter,
 	.error = shell_error_adapter,
 };

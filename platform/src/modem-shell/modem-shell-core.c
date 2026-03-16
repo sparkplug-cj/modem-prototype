@@ -4,6 +4,7 @@
 #include <string.h>
 
 static const int MODEM_AT_SYNC_RETRIES = 3;
+static const int MODEM_AT_BOOT_DELAY_MS = 5000;
 static const char *const MODEM_AT_SYNC_COMMAND = "AT";
 static const char *const MODEM_AT_DISABLE_SLEEP_COMMAND = "AT+KSLEEP=2";
 
@@ -11,6 +12,8 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 {
 	char response[256];
 	int ret = -ETIMEDOUT;
+
+	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
 		ret = ops->modem_at_send(MODEM_AT_SYNC_COMMAND, response, sizeof(response));

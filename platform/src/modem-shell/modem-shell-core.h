@@ -4,6 +4,7 @@
 #include "modem-board.h"
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,7 @@ struct modem_shell_ops {
 	int (*modem_board_reset_pulse)(void);
 	int (*modem_board_get_status)(struct modem_board_status *out);
 	int (*modem_at_send)(const char *command, char *response, size_t responseSize);
+	void (*sleep_ms)(int32_t durationMs);
 	void (*print)(void *ctx, const char *fmt, ...);
 	void (*error)(void *ctx, const char *fmt, ...);
 	void *ctx;
