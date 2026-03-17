@@ -17,6 +17,7 @@
 #define MODEM_PASSTHROUGH_ESCAPE_PREFIX 0x18u
 #define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
 #define MODEM_PASSTHROUGH_RX_CHUNK_SIZE 64
+#define MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS 10
 #define MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE (MODEM_PASSTHROUGH_RX_CHUNK_SIZE * 3U + 1U)
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
@@ -123,18 +124,31 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 		uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
 		size_t length = 0U;
 		uint8_t byte;
-		int ret;
+		int ret = modem_at_uart_read_byte(&byte);
 
-		do {
-			ret = modem_at_uart_read_byte(&byte);
-			if (ret == 0) {
-				if (length < MODEM_PASSTHROUGH_RX_CHUNK_SIZE) {
+		if (ret == 0) {
+			buffer[length++] = byte;
+
+			int64_t deadline = k_uptime_get() + MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS;
+			while (length < MODEM_PASSTHROUGH_RX_CHUNK_SIZE) {
+				ret = modem_at_uart_read_byte(&byte);
+				if (ret == 0) {
 					buffer[length++] = byte;
-				} else {
+					deadline = k_uptime_get() + MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS;
+					continue;
+				}
+
+				if (ret != -1) {
 					break;
 				}
+
+				if (k_uptime_get() >= deadline) {
+					break;
+				}
+
+				k_msleep(1);
 			}
-		} while (ret == 0);
+		}
 
 		if (length > 0U) {
 			modem_passthrough_trace_chunk(passthroughShell, buffer, length);
