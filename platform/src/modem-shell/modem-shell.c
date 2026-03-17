@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
@@ -16,6 +17,7 @@
 #define MODEM_PASSTHROUGH_ESCAPE_PREFIX 0x18u
 #define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
 #define MODEM_PASSTHROUGH_RX_CHUNK_SIZE 64
+#define MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE (MODEM_PASSTHROUGH_RX_CHUNK_SIZE * 3U + 1U)
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
@@ -80,6 +82,32 @@ static void modem_passthrough_stop(void)
 	passthroughTail = 0U;
 }
 
+static void modem_passthrough_trace_chunk(const struct shell *sh, const uint8_t *data, size_t length)
+{
+	char trace[MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE];
+	size_t offset = 0U;
+
+	for (size_t i = 0; i < length; ++i) {
+		int written = snprintk(&trace[offset], sizeof(trace) - offset, "%02X", data[i]);
+		if ((written <= 0) || ((size_t)written >= (sizeof(trace) - offset))) {
+			break;
+		}
+		offset += (size_t)written;
+
+		if ((i + 1U) < length) {
+			if ((offset + 1U) >= sizeof(trace)) {
+				break;
+			}
+			trace[offset++] = ' ';
+			trace[offset] = '\0';
+		}
+	}
+
+	shell_fprintf_normal(sh, "\r\n[modem rx %u] %s\r\n",
+			     (unsigned int)length,
+			     trace);
+}
+
 static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);
@@ -92,7 +120,7 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 			continue;
 		}
 
-		char buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE + 1U];
+		uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
 		size_t length = 0U;
 		uint8_t byte;
 		int ret;
@@ -101,7 +129,7 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 			ret = modem_at_uart_read_byte(&byte);
 			if (ret == 0) {
 				if (length < MODEM_PASSTHROUGH_RX_CHUNK_SIZE) {
-					buffer[length++] = (char)byte;
+					buffer[length++] = byte;
 				} else {
 					break;
 				}
@@ -109,8 +137,7 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 		} while (ret == 0);
 
 		if (length > 0U) {
-			buffer[length] = '\0';
-			shell_fprintf_normal(passthroughShell, "%s", buffer);
+			modem_passthrough_trace_chunk(passthroughShell, buffer, length);
 			continue;
 		}
 
