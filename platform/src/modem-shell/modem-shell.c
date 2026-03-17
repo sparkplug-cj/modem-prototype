@@ -15,6 +15,7 @@
 #define MODEM_PASSTHROUGH_THREAD_PRIORITY 7
 #define MODEM_PASSTHROUGH_ESCAPE_PREFIX 0x18u
 #define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
+#define MODEM_PASSTHROUGH_RX_CHUNK_SIZE 64
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
@@ -91,11 +92,29 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 			continue;
 		}
 
+		char buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE + 1U];
+		size_t length = 0U;
 		uint8_t byte;
-		int ret = modem_at_uart_read_byte(&byte);
-		if (ret == 0) {
-			shell_fprintf_normal(passthroughShell, "%c", (char)byte);
-		} else if (ret == -1) {
+		int ret;
+
+		do {
+			ret = modem_at_uart_read_byte(&byte);
+			if (ret == 0) {
+				if (length < MODEM_PASSTHROUGH_RX_CHUNK_SIZE) {
+					buffer[length++] = (char)byte;
+				} else {
+					break;
+				}
+			}
+		} while (ret == 0);
+
+		if (length > 0U) {
+			buffer[length] = '\0';
+			shell_fprintf_normal(passthroughShell, "%s", buffer);
+			continue;
+		}
+
+		if (ret == -1) {
 			k_msleep(10);
 		} else {
 			shell_error(passthroughShell, "\r\n[modem passthrough RX error: %d]", ret);
