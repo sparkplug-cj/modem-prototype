@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define MODEM_AT_SYNC_RETRIES 3
-#define MODEM_AT_BOOT_DELAY_MS 1000
+#define MODEM_AT_BOOT_DELAY_MS 5000
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
 
@@ -15,6 +15,7 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 	int (*send_fn)(const char *command, char *response, size_t responseSize) =
 		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on : ops->modem_at_send;
 
+	ops->print(ops->ctx, "Waiting for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
@@ -29,6 +30,7 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 		return ret;
 	}
 
+	ops->print(ops->ctx, "Disabling sleep...");
 	ret = send_fn(MODEM_AT_DISABLE_SLEEP_COMMAND, response, sizeof(response));
 	if (ret != 0) {
 		ops->error(ops->ctx, "failed to disable modem sleep: %d", ret);
@@ -84,11 +86,13 @@ int modem_shell_cmd_power_core(const struct modem_shell_ops *ops, size_t argc, c
 	bool shouldDisableSleep = false;
 
 	if (strcmp(op, "on") == 0) {
+		ops->print(ops->ctx, "Powering modem...");
 		ret = ops->modem_board_power_on();
 		shouldDisableSleep = true;
 	} else if (strcmp(op, "off") == 0) {
 		ret = ops->modem_board_power_off();
 	} else if (strcmp(op, "cycle") == 0) {
+		ops->print(ops->ctx, "Powering modem...");
 		ret = ops->modem_board_power_cycle();
 		shouldDisableSleep = true;
 	} else {
