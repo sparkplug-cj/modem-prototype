@@ -9,16 +9,18 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
+#include <zephyr/sys/ring_buffer.h>
 
 #define MODEM_PASSTHROUGH_STACK_SIZE 1024
 #define MODEM_PASSTHROUGH_THREAD_PRIORITY 7
 #define MODEM_PASSTHROUGH_ESCAPE_PREFIX 0x18u
 #define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
 #define MODEM_PASSTHROUGH_RX_CHUNK_SIZE 64
-#define MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS 10
 #define MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE (MODEM_PASSTHROUGH_RX_CHUNK_SIZE * 3U + 1U)
+#define MODEM_PASSTHROUGH_IRQ_RING_SIZE 512
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
@@ -63,12 +65,16 @@ static const struct modem_shell_ops shellOps = {
 	.error = shell_error_adapter,
 };
 
+static const struct device *const modemUart = DEVICE_DT_GET(DT_NODELABEL(modem_uart));
 static const struct shell *passthroughShell;
 static bool passthroughActive;
 static uint8_t passthroughTail;
 static K_THREAD_STACK_DEFINE(passthroughStack, MODEM_PASSTHROUGH_STACK_SIZE);
 static struct k_thread passthroughThread;
 static bool passthroughThreadStarted;
+static uint8_t passthroughIrqRingBuffer[MODEM_PASSTHROUGH_IRQ_RING_SIZE];
+static struct ring_buf passthroughIrqRing;
+static bool passthroughIrqConfigured;
 
 static void modem_passthrough_stop(void)
 {
@@ -77,10 +83,12 @@ static void modem_passthrough_stop(void)
 	}
 
 	passthroughActive = false;
+	uart_irq_rx_disable(modemUart);
 	shell_set_bypass(passthroughShell, NULL);
 	shell_print(passthroughShell, "\r\n[modem passthrough disabled]");
 	passthroughShell = NULL;
 	passthroughTail = 0U;
+	ring_buf_reset(&passthroughIrqRing);
 }
 
 static void modem_passthrough_trace_chunk(const struct shell *sh, const uint8_t *data, size_t length)
@@ -109,6 +117,24 @@ static void modem_passthrough_trace_chunk(const struct shell *sh, const uint8_t 
 			     trace);
 }
 
+static void modem_passthrough_uart_irq_cb(const struct device *dev, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
+
+	uart_irq_update(dev);
+
+	while (uart_irq_rx_ready(dev)) {
+		int received = uart_fifo_read(dev, buffer, sizeof(buffer));
+		if (received <= 0) {
+			break;
+		}
+
+		(void)ring_buf_put(&passthroughIrqRing, buffer, (uint32_t)received);
+	}
+}
+
 static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);
@@ -122,45 +148,13 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 		}
 
 		uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
-		size_t length = 0U;
-		uint8_t byte;
-		int ret = modem_at_uart_read_byte(&byte);
-
-		if (ret == 0) {
-			buffer[length++] = byte;
-
-			int64_t deadline = k_uptime_get() + MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS;
-			while (length < MODEM_PASSTHROUGH_RX_CHUNK_SIZE) {
-				ret = modem_at_uart_read_byte(&byte);
-				if (ret == 0) {
-					buffer[length++] = byte;
-					deadline = k_uptime_get() + MODEM_PASSTHROUGH_RX_GATHER_WINDOW_MS;
-					continue;
-				}
-
-				if (ret != -1) {
-					break;
-				}
-
-				if (k_uptime_get() >= deadline) {
-					break;
-				}
-
-				k_msleep(1);
-			}
-		}
-
+		uint32_t length = ring_buf_get(&passthroughIrqRing, buffer, sizeof(buffer));
 		if (length > 0U) {
 			modem_passthrough_trace_chunk(passthroughShell, buffer, length);
 			continue;
 		}
 
-		if (ret == -1) {
-			k_msleep(10);
-		} else {
-			shell_error(passthroughShell, "\r\n[modem passthrough RX error: %d]", ret);
-			modem_passthrough_stop();
-		}
+		k_msleep(10);
 	}
 }
 
@@ -250,7 +244,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		return -EHOSTDOWN;
 	}
 
-	if (!modem_at_uart_is_ready()) {
+	if (!modem_at_uart_is_ready() || !device_is_ready(modemUart)) {
 		shell_error(sh, "modem UART device is not ready");
 		return -ENODEV;
 	}
@@ -274,9 +268,19 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		passthroughThreadStarted = true;
 	}
 
+	if (!passthroughIrqConfigured) {
+		ring_buf_init(&passthroughIrqRing,
+			      sizeof(passthroughIrqRingBuffer),
+			      passthroughIrqRingBuffer);
+		uart_irq_callback_user_data_set(modemUart, modem_passthrough_uart_irq_cb, NULL);
+		passthroughIrqConfigured = true;
+	}
+
+	ring_buf_reset(&passthroughIrqRing);
 	passthroughShell = sh;
 	passthroughTail = 0U;
 	passthroughActive = true;
+	uart_irq_rx_enable(modemUart);
 	shell_print(sh, "Entering modem UART passthrough. Press Ctrl-X then Ctrl-Q to exit.");
 	shell_set_bypass(sh, modem_passthrough_bypass_cb);
 	return 0;
