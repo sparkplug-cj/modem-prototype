@@ -176,9 +176,15 @@ static void modem_passthrough_stop(void)
 	ring_buf_reset(&passthroughIrqRing);
 }
 
+static void modem_passthrough_shell_write(const struct shell *sh, const char *data, size_t length)
+{
+	z_shell_print_stream(sh, data, length);
+}
+
 static void modem_passthrough_trace_chunk(const struct shell *sh, const uint8_t *data, size_t length)
 {
 	char trace[MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE];
+	char line[MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE + 32U];
 	size_t offset = 0U;
 
 	for (size_t i = 0; i < length; ++i) {
@@ -197,9 +203,13 @@ static void modem_passthrough_trace_chunk(const struct shell *sh, const uint8_t 
 		}
 	}
 
-	shell_fprintf_normal(sh, "\r\n[modem rx %u] %s\r\n",
-			     (unsigned int)length,
-			     trace);
+	int lineLen = snprintk(line, sizeof(line), "\r\n[modem rx %u] %s\r\n",
+			       (unsigned int)length,
+			       trace);
+	if (lineLen > 0) {
+		size_t writeLen = ((size_t)lineLen < (sizeof(line) - 1U)) ? (size_t)lineLen : (sizeof(line) - 1U);
+		modem_passthrough_shell_write(sh, line, writeLen);
+	}
 }
 
 static void modem_passthrough_print_text_chunk(const struct shell *sh, const uint8_t *data, size_t length)
@@ -226,8 +236,7 @@ static void modem_passthrough_print_text_chunk(const struct shell *sh, const uin
 		offset += (size_t)written;
 	}
 
-	text[offset] = '\0';
-	shell_fprintf_normal(sh, "%s", text);
+	modem_passthrough_shell_write(sh, text, offset);
 }
 
 static void modem_passthrough_uart_irq_cb(const struct device *dev, void *user_data)
