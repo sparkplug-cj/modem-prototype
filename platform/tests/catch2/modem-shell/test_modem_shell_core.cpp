@@ -132,6 +132,30 @@ int fake_at_send_echo(const char *command, char *response, size_t responseSize)
   return 0;
 }
 
+int fake_at_send_power_on_success(const char *command, char *response, size_t responseSize)
+{
+  if (strcmp(command, "AT") == 0 || strcmp(command, "AT+KSLEEP=2") == 0) {
+    snprintf(response, responseSize, "OK");
+    return 0;
+  }
+  return -EINVAL;
+}
+
+int fake_at_send_power_on_ksleep_fail(const char *command, char *response, size_t responseSize)
+{
+  if (strcmp(command, "AT") == 0) {
+    snprintf(response, responseSize, "OK");
+    return 0;
+  }
+  if (strcmp(command, "AT+KSLEEP=2") == 0) {
+    if (responseSize > 0) {
+      response[0] = '\0';
+    }
+    return -ETIMEDOUT;
+  }
+  return -EINVAL;
+}
+
 
 } // namespace
 
@@ -177,6 +201,7 @@ TEST_CASE("modem status prints the current board state", "[modem-shell]")
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
     modem_at_send_fake,
+    modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
     shell_error_capture,
@@ -200,6 +225,7 @@ TEST_CASE("modem status prints OFF when VGPIO is below threshold", "[modem-shell
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -225,6 +251,7 @@ TEST_CASE("modem status reports board read errors", "[modem-shell]")
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
     modem_at_send_fake,
+    modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
     shell_error_capture,
@@ -249,6 +276,7 @@ TEST_CASE("modem status prints partial status when VGPIO read fails", "[modem-sh
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
     modem_at_send_fake,
+    modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
     shell_error_capture,
@@ -271,6 +299,7 @@ TEST_CASE("modem reset prints OK on success", "[modem-shell]")
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -296,11 +325,14 @@ TEST_CASE("modem power validates usage and dispatches requested operation", "[mo
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
     modem_at_send_fake,
+    modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
     shell_error_capture,
     &capture,
   };
+
+  modem_at_send_fake_fake.custom_fake = fake_at_send_power_on_success;
 
   char command[] = "power";
   char on[] = "on";
@@ -308,8 +340,11 @@ TEST_CASE("modem power validates usage and dispatches requested operation", "[mo
 
   REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == 0);
   REQUIRE(modem_board_power_on_fake_fake.call_count == 1);
-  REQUIRE(modem_sleep_ms_fake_fake.call_count == 0);
-  REQUIRE(modem_at_send_fake_fake.call_count == 0);
+  REQUIRE(modem_sleep_ms_fake_fake.call_count == 1);
+  REQUIRE(modem_sleep_ms_fake_fake.arg0_val == 5000);
+  REQUIRE(modem_at_send_fake_fake.call_count == 2);
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[0]) == "AT");
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[1]) == "AT+KSLEEP=2");
   REQUIRE(capture.lastPrint == "OK");
 
   capture = {};
@@ -328,6 +363,7 @@ TEST_CASE("modem power reports unknown operations and downstream failures", "[mo
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -351,6 +387,36 @@ TEST_CASE("modem power reports unknown operations and downstream failures", "[mo
   REQUIRE(capture.lastError == "power cycle failed: -5");
 }
 
+TEST_CASE("modem power reports sleep-disable failures after successful power on", "[modem-shell]")
+{
+  reset_fakes();
+  modem_at_send_fake_fake.custom_fake = fake_at_send_power_on_ksleep_fail;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+  };
+
+  char command[] = "power";
+  char on[] = "on";
+  char *argv[] = {command, on};
+
+  REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == -ETIMEDOUT);
+  REQUIRE(modem_board_power_on_fake_fake.call_count == 1);
+  REQUIRE(modem_sleep_ms_fake_fake.call_count == 1);
+  REQUIRE(modem_at_send_fake_fake.call_count == 2);
+  REQUIRE(capture.lastError == "failed to disable modem sleep: -110");
+}
 
 TEST_CASE("modem at validates usage", "[modem-shell]")
 {
@@ -363,6 +429,7 @@ TEST_CASE("modem at validates usage", "[modem-shell]")
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -389,6 +456,7 @@ TEST_CASE("modem at refuses requests while modem rail is off", "[modem-shell]")
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -418,6 +486,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -450,6 +519,7 @@ TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
     modem_at_send_fake,
+    modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
     shell_error_capture,
@@ -478,6 +548,7 @@ TEST_CASE("modem at reports echo-only modem response explicitly", "[modem-shell]
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,
@@ -510,6 +581,7 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
     modem_board_power_cycle_fake,
     modem_board_reset_pulse_fake,
     modem_board_get_status_fake,
+    modem_at_send_fake,
     modem_at_send_fake,
     modem_sleep_ms_fake,
     shell_print_capture,

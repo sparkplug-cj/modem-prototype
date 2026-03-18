@@ -53,18 +53,6 @@ static void shell_sleep_ms_adapter(int32_t durationMs)
 	k_msleep(durationMs);
 }
 
-static const struct modem_shell_ops shellOps = {
-	.modem_board_power_on = modem_board_power_on,
-	.modem_board_power_off = modem_board_power_off,
-	.modem_board_power_cycle = modem_board_power_cycle,
-	.modem_board_reset_pulse = modem_board_reset_pulse,
-	.modem_board_get_status = modem_board_get_status,
-	.modem_at_send = modem_at_send,
-	.sleep_ms = shell_sleep_ms_adapter,
-	.print = shell_print_adapter,
-	.error = shell_error_adapter,
-};
-
 static const struct device *const modemUart = DEVICE_DT_GET(DT_NODELABEL(modem_uart));
 static const struct shell *passthroughShell;
 static bool passthroughActive;
@@ -75,6 +63,101 @@ static bool passthroughThreadStarted;
 static uint8_t passthroughIrqRingBuffer[MODEM_PASSTHROUGH_IRQ_RING_SIZE];
 static struct ring_buf passthroughIrqRing;
 static bool passthroughIrqConfigured;
+
+static void modem_passthrough_uart_irq_cb(const struct device *dev, void *user_data);
+
+static int modem_uart_irq_prepare(void)
+{
+	if (!device_is_ready(modemUart)) {
+		return -ENODEV;
+	}
+
+	if (!passthroughIrqConfigured) {
+		ring_buf_init(&passthroughIrqRing,
+			      sizeof(passthroughIrqRingBuffer),
+			      passthroughIrqRingBuffer);
+		uart_irq_callback_user_data_set(modemUart, modem_passthrough_uart_irq_cb, NULL);
+		passthroughIrqConfigured = true;
+	}
+
+	return 0;
+}
+
+static int modem_at_send_power_on_irq(const char *command, char *response, size_t responseSize)
+{
+	int ret = modem_uart_irq_prepare();
+	if (ret != 0) {
+		return ret;
+	}
+
+	if ((command == NULL) || (response == NULL) || (responseSize == 0U)) {
+		return -EINVAL;
+	}
+
+	ring_buf_reset(&passthroughIrqRing);
+	response[0] = '\0';
+
+	uart_irq_rx_enable(modemUart);
+
+	ret = modem_at_uart_write((const uint8_t *)command, strlen(command));
+	if (ret == 0) {
+		static const uint8_t cr = '\r';
+		ret = modem_at_uart_write(&cr, 1U);
+	}
+	if (ret != 0) {
+		uart_irq_rx_disable(modemUart);
+		return ret;
+	}
+
+	size_t offset = 0U;
+	int64_t deadline = k_uptime_get() + 5000;
+	for (;;) {
+		uint8_t chunk[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
+		uint32_t received = ring_buf_get(&passthroughIrqRing, chunk, sizeof(chunk));
+		if (received > 0U) {
+			for (uint32_t i = 0; i < received; ++i) {
+				if (offset + 1U < responseSize) {
+					response[offset++] = (char)chunk[i];
+					response[offset] = '\0';
+				}
+			}
+
+			if ((strstr(response, "\r\nOK\r\n") != NULL) ||
+			    (strstr(response, "\nOK\r\n") != NULL) ||
+			    (strstr(response, "\nOK\n") != NULL)) {
+				uart_irq_rx_disable(modemUart);
+				return 0;
+			}
+			if (strstr(response, "ERROR") != NULL) {
+				uart_irq_rx_disable(modemUart);
+				return -EIO;
+			}
+
+			deadline = k_uptime_get() + 1000;
+			continue;
+		}
+
+		if (k_uptime_get() >= deadline) {
+			uart_irq_rx_disable(modemUart);
+			return -ETIMEDOUT;
+		}
+
+		k_msleep(10);
+	}
+}
+
+static const struct modem_shell_ops shellOps = {
+	.modem_board_power_on = modem_board_power_on,
+	.modem_board_power_off = modem_board_power_off,
+	.modem_board_power_cycle = modem_board_power_cycle,
+	.modem_board_reset_pulse = modem_board_reset_pulse,
+	.modem_board_get_status = modem_board_get_status,
+	.modem_at_send = modem_at_send,
+	.modem_at_send_power_on = modem_at_send_power_on_irq,
+	.sleep_ms = shell_sleep_ms_adapter,
+	.print = shell_print_adapter,
+	.error = shell_error_adapter,
+};
 
 static void modem_passthrough_stop(void)
 {
@@ -268,12 +351,10 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		passthroughThreadStarted = true;
 	}
 
-	if (!passthroughIrqConfigured) {
-		ring_buf_init(&passthroughIrqRing,
-			      sizeof(passthroughIrqRingBuffer),
-			      passthroughIrqRingBuffer);
-		uart_irq_callback_user_data_set(modemUart, modem_passthrough_uart_irq_cb, NULL);
-		passthroughIrqConfigured = true;
+	ret = modem_uart_irq_prepare();
+	if (ret != 0) {
+		shell_error(sh, "failed to prepare modem UART IRQ RX: %d", ret);
+		return ret;
 	}
 
 	ring_buf_reset(&passthroughIrqRing);
