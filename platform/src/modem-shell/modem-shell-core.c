@@ -146,7 +146,14 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 	ret = send_fn(argv[1], response, sizeof(response));
 	modem_at_get_last_diagnostics(&diagnostics);
 	if (ret != 0) {
-		if (ret == -ETIMEDOUT) {
+		if (response[0] != '\0') {
+			ops->error(ops->ctx,
+				"[raw modem response on error]\n%s\n[modem-at] exit=%s bytes=%u ret=%d",
+				response,
+				modem_at_exit_reason_str(diagnostics.exitReason),
+				(unsigned int)diagnostics.bytesReceived,
+				ret);
+		} else if (ret == -ETIMEDOUT) {
 			ops->error(ops->ctx,
 				"AT command timed out waiting for modem response (exit=%s, bytes=%u)",
 				modem_at_exit_reason_str(diagnostics.exitReason),
