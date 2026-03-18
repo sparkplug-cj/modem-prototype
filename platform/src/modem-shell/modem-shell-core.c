@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define MODEM_AT_SYNC_RETRIES 3
-#define MODEM_AT_BOOT_DELAY_MS 5000
+#define MODEM_AT_BOOT_DELAY_MS 10000
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
 
@@ -16,7 +16,7 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on :
 		(ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send);
 
-	ops->print(ops->ctx, "Waiting for modem boot...");
+	ops->print(ops->ctx, "Waiting 10s for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
