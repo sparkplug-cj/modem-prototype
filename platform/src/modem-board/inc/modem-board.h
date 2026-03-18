@@ -12,7 +12,7 @@ extern "C" {
  * @brief Board-specific modem power/reset control primitives.
  *
  * This unit provides **board-level** control over the modem’s rail enable and
- * control pins (e.g. PWR_ON_N and RESET_IN_N). It is intentionally **modem-agnostic**:
+ * control pins (e.g. PWR_ON and RESET control from the MCU side). It is intentionally **modem-agnostic**:
  * the sequencing is generic, while the actual GPIO mapping is supplied via devicetree.
  *
  * @note This API does not establish any UART/AT/PPP connectivity. It only manages
@@ -25,7 +25,7 @@ extern "C" {
  * High-level behavior:
  * - Assert reset.
  * - Enable rail.
- * - Pulse PWR_ON_N (active-low) for the configured duration.
+ * - Pulse the PWR_ON control line for the configured duration.
  * - Wait a short post-on delay.
  * - Deassert reset.
  *
@@ -39,7 +39,7 @@ int modem_board_power_on(void);
  * @brief Power off the modem.
  *
  * High-level behavior:
- * - Pulse PWR_ON_N (active-low) for the configured “power-off” duration.
+ * - Pulse the PWR_ON control line for the configured “power-off” duration.
  * - Assert reset.
  * - Disable rail.
  *
@@ -76,8 +76,8 @@ int modem_board_reset_pulse(void);
 struct modem_board_status {
 	/* Logical values (honor GPIO_ACTIVE_LOW) */
 	int rail_en;   /**< MODEM_3V8_EN logical value (0/1), or negative errno */
-	int pwr_on_n;  /**< MODEM_PWR_ON_N logical value (0/1), or negative errno */
-	int rst_n;     /**< MODEM_RST_N logical value (0/1), or negative errno */
+	int pwr_on;    /**< MODEM_PWR_ON control logical value (0/1), or negative errno */
+	int rst;       /**< MODEM_RST control logical value (0/1), or negative errno */
 	int vgpio_mv;  /**< VGPIO sense voltage in mV, or negative errno if ADC read failed */
 	bool modem_state_on; /**< Derived boolean modem state based on VGPIO threshold */
 };

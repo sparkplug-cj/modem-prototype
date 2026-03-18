@@ -43,8 +43,8 @@
      * (Application code should prefer these /zephyr,user properties to keep naming modem-agnostic.)
      */
     modem-3v8-en-gpios = <&gpio4 0 GPIO_ACTIVE_HIGH>; /* GPIO_EMC_00 */
-    modem-pwr-on-n-gpios = <&gpio2 22 GPIO_ACTIVE_LOW>; /* GPIO_B1_06 (PWER_ON_N) */
-    modem-rst-n-gpios = <&gpio4 9 GPIO_ACTIVE_LOW>; /* GPIO_EMC_09 (RESET_IN_N) */
+    modem-pwr-on-gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>; /* GPIO_B1_06 (PWER_ON_N via inverting NPN stage) */
+    modem-rst-gpios = <&gpio4 9 GPIO_ACTIVE_HIGH>; /* GPIO_EMC_09 (RESET_IN_N via inverting NPN stage) */
   };
 
 	gpios {
@@ -272,23 +272,23 @@
     output-low;
   };
 
-  // MODEM_RST_N (RESET_IN_N) - active low
-  gpio4_modem_nrst {
+  // MODEM_RST_N (RESET_IN_N) at the modem is active low, but MCU control is active high via an inverting NPN stage
+  gpio4_modem_rst {
     gpio-hog;
-    gpios = <9 GPIO_ACTIVE_LOW>;
-    // Default deasserted (raw high)
-    output-high;
+    gpios = <9 GPIO_ACTIVE_HIGH>;
+    // Default deasserted at modem input (raw low at MCU pin)
+    output-low;
   };
 };
 
 
 &gpio2 {
-  // MODEM_PWR_ON_N (PWER_ON_N) - active low
-  gpio2_modem_pwr_on_n {
+  // MODEM_PWR_ON_N (PWER_ON_N) at the modem is active low, but MCU control is active high via an inverting NPN stage
+  gpio2_modem_pwr {
     gpio-hog;
-    gpios = <22 GPIO_ACTIVE_LOW>;
-    // Default deasserted (raw high)
-    output-high;
+    gpios = <22 GPIO_ACTIVE_HIGH>;
+    // Default deasserted at modem input (raw low at MCU pin)
+    output-low;
   };
 };
 
@@ -400,37 +400,48 @@
     };
 
     /* Modem UART on Control A4: LPUART3 (GPIO_EMC_13..16) */
+    // pinmux_lpuart3: pinmux_lpuart3 {
+    //   lpuart3_tx_pin {
+    //     pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>;
+    //     drive-strength = "r0-3";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_rx_pin {
+    //     pinmux = <&iomuxc_gpio_emc_14_lpuart3_rx>;
+    //     bias-pull-up;
+    //     bias-pull-up-value = "47k";
+    //     drive-strength = "disabled";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_cts_pin {
+    //     pinmux = <&iomuxc_gpio_emc_15_lpuart3_cts_b>;
+    //     bias-pull-up;
+    //     bias-pull-up-value = "47k";
+    //     drive-strength = "disabled";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+
+    //   lpuart3_rts_pin {
+    //     pinmux = <&iomuxc_gpio_emc_16_lpuart3_rts_b>;
+    //     drive-strength = "r0-3";
+    //     nxp,speed = "100-mhz";
+    //     slew-rate = "slow";
+    //   };
+    // };
     pinmux_lpuart3: pinmux_lpuart3 {
-      lpuart3_tx_pin {
-        pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>;
-        drive-strength = "r0-3";
-        nxp,speed = "100-mhz";
+      group0 {
+        pinmux = <&iomuxc_gpio_emc_13_lpuart3_tx>,
+        <&iomuxc_gpio_emc_14_lpuart3_rx>,      
+        <&iomuxc_gpio_emc_15_lpuart3_cts_b>,     
+        <&iomuxc_gpio_emc_16_lpuart3_rts_b>;     
+        drive-strength = "r0-6";
         slew-rate = "slow";
-      };
-
-      lpuart3_rx_pin {
-        pinmux = <&iomuxc_gpio_emc_14_lpuart3_rx>;
-        bias-pull-up;
-        bias-pull-up-value = "47k";
-        drive-strength = "disabled";
         nxp,speed = "100-mhz";
-        slew-rate = "slow";
-      };
-
-      lpuart3_cts_pin {
-        pinmux = <&iomuxc_gpio_emc_15_lpuart3_cts_b>;
-        bias-pull-up;
-        bias-pull-up-value = "47k";
-        drive-strength = "disabled";
-        nxp,speed = "100-mhz";
-        slew-rate = "slow";
-      };
-
-      lpuart3_rts_pin {
-        pinmux = <&iomuxc_gpio_emc_16_lpuart3_rts_b>;
-        drive-strength = "r0-3";
-        nxp,speed = "100-mhz";
-        slew-rate = "slow";
       };
     };
   

@@ -112,6 +112,32 @@ Manual acceptance steps:
 > Timing notes: the PWR_ON_N pulse widths are currently conservative defaults. Confirm the module’s
 > required timings (on/off pulse, rail settle time) and adjust if needed.
 
+## Modem AT passthrough over UART (Iteration 2)
+
+This firmware also exposes a minimal shell-driven **AT passthrough** path for proving UART wiring and basic modem responsiveness.
+
+Commands:
+
+```text
+modem at ATI
+modem at AT+CSQ
+modem at AT+CREG?
+```
+
+Manual acceptance steps:
+
+- [ ] With the modem powered off, run `modem at ATI` and confirm the shell returns a **clear deterministic error** instead of hanging or printing misleading output
+- [ ] Run `modem power on` and wait for the modem to boot sufficiently for AT responses
+- [ ] Run `modem at ATI` and confirm it returns an identifiable modem response
+- [ ] Run `modem at AT+CSQ` and confirm a plausible signal-quality response is printed
+- [ ] Run `modem at AT+CREG?` and confirm a registration-status response is printed
+- [ ] Confirm AT responses are readable and not garbled on the shell transport
+- [ ] Confirm transport failures/timeouts are surfaced as explicit shell errors rather than silent hangs
+
+Notes:
+- This charter is intentionally narrow: it validates shell-to-UART AT responsiveness, not PPP, Zephyr cellular integration, or automatic modem power-state management.
+- If command timing proves flaky during bring-up, capture the exact command, observed shell output, and whether the modem had just been powered on/reset.
+
 ## Acceptance checklist
 
 - [ ] `west update` completes cleanly
@@ -120,3 +146,5 @@ Manual acceptance steps:
 - [ ] `west flash -d control/build` succeeds on target hardware
 - [ ] USB CDC ACM port enumerates on host (`ttyACM` / `usbmodem` / `COM`)
 - [ ] Shell prompt appears and is responsive (`help`, `kernel version`, `kernel uptime`)
+- [ ] Modem GPIO control checks pass
+- [ ] Modem AT passthrough checks pass (`ATI`, `AT+CSQ`, `AT+CREG?`)

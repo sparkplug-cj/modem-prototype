@@ -1,8 +1,8 @@
 #pragma once
 
-#include <stdbool.h>
+#include "modem-board.h"
 
-#include <modem-board.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,8 +14,8 @@ struct modem_board_ops {
 	int (*set_pwr_on_asserted)(void *ctx, bool asserted);
 	int (*set_rst_asserted)(void *ctx, bool asserted);
 	int (*get_rail_en)(void *ctx);
-	int (*get_pwr_on_n)(void *ctx);
-	int (*get_rst_n)(void *ctx);
+	int (*get_pwr_on)(void *ctx);
+	int (*get_rst)(void *ctx);
 	int (*get_vgpio_mv)(void *ctx);
 	void (*sleep_ms)(void *ctx, int duration_ms);
 	void *ctx;

@@ -13,8 +13,8 @@ FAKE_VALUE_FUNC(int, set_rail_en_fake, void *, int);
 FAKE_VALUE_FUNC(int, set_pwr_on_asserted_fake, void *, bool);
 FAKE_VALUE_FUNC(int, set_rst_asserted_fake, void *, bool);
 FAKE_VALUE_FUNC(int, get_rail_en_fake, void *);
-FAKE_VALUE_FUNC(int, get_pwr_on_n_fake, void *);
-FAKE_VALUE_FUNC(int, get_rst_n_fake, void *);
+FAKE_VALUE_FUNC(int, get_pwr_on_fake, void *);
+FAKE_VALUE_FUNC(int, get_rst_fake, void *);
 FAKE_VALUE_FUNC(int, get_vgpio_mv_fake, void *);
 FAKE_VOID_FUNC(sleep_ms_fake, void *, int);
 
@@ -26,8 +26,8 @@ const modem_board_ops TEST_OPS = {
   set_pwr_on_asserted_fake,
   set_rst_asserted_fake,
   get_rail_en_fake,
-  get_pwr_on_n_fake,
-  get_rst_n_fake,
+  get_pwr_on_fake,
+  get_rst_fake,
   get_vgpio_mv_fake,
   sleep_ms_fake,
   nullptr,
@@ -40,8 +40,8 @@ void reset_fakes()
   RESET_FAKE(set_pwr_on_asserted_fake);
   RESET_FAKE(set_rst_asserted_fake);
   RESET_FAKE(get_rail_en_fake);
-  RESET_FAKE(get_pwr_on_n_fake);
-  RESET_FAKE(get_rst_n_fake);
+  RESET_FAKE(get_pwr_on_fake);
+  RESET_FAKE(get_rst_fake);
   RESET_FAKE(get_vgpio_mv_fake);
   RESET_FAKE(sleep_ms_fake);
   FFF_RESET_HISTORY();
@@ -138,8 +138,8 @@ TEST_CASE("get_status reports current line values", "[modem-board]")
 {
   reset_fakes();
   get_rail_en_fake_fake.return_val = 1;
-  get_pwr_on_n_fake_fake.return_val = 0;
-  get_rst_n_fake_fake.return_val = 1;
+  get_pwr_on_fake_fake.return_val = 0;
+  get_rst_fake_fake.return_val = 1;
   get_vgpio_mv_fake_fake.return_val = 1800;
 
   modem_board_status status{};
@@ -147,8 +147,8 @@ TEST_CASE("get_status reports current line values", "[modem-board]")
 
   REQUIRE(ensure_ready_fake_fake.call_count == 1);
   REQUIRE(status.rail_en == 1);
-  REQUIRE(status.pwr_on_n == 0);
-  REQUIRE(status.rst_n == 1);
+  REQUIRE(status.pwr_on == 0);
+  REQUIRE(status.rst == 1);
   REQUIRE(status.vgpio_mv == 1800);
   REQUIRE(status.modem_state_on == true);
 }
@@ -175,15 +175,15 @@ TEST_CASE("get_status preserves ADC errors as partial status", "[modem-board]")
 {
   reset_fakes();
   get_rail_en_fake_fake.return_val = 1;
-  get_pwr_on_n_fake_fake.return_val = 0;
-  get_rst_n_fake_fake.return_val = 1;
+  get_pwr_on_fake_fake.return_val = 0;
+  get_rst_fake_fake.return_val = 1;
   get_vgpio_mv_fake_fake.return_val = -EIO;
 
   modem_board_status status{};
   REQUIRE(modem_board_get_status_core(&TEST_OPS, &status) == 0);
   REQUIRE(status.rail_en == 1);
-  REQUIRE(status.pwr_on_n == 0);
-  REQUIRE(status.rst_n == 1);
+  REQUIRE(status.pwr_on == 0);
+  REQUIRE(status.rst == 1);
   REQUIRE(status.vgpio_mv == -EIO);
   REQUIRE(status.modem_state_on == false);
 }
