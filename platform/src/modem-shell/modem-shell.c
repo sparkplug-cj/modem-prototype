@@ -84,7 +84,7 @@ static int modem_uart_irq_prepare(void)
 	return 0;
 }
 
-static int modem_at_send_power_on_irq(const char *command, char *response, size_t responseSize)
+static int modem_at_send_irq(const char *command, char *response, size_t responseSize)
 {
 	int ret = modem_uart_irq_prepare();
 	if (ret != 0) {
@@ -154,7 +154,8 @@ static const struct modem_shell_ops shellOps = {
 	.modem_board_reset_pulse = modem_board_reset_pulse,
 	.modem_board_get_status = modem_board_get_status,
 	.modem_at_send = modem_at_send,
-	.modem_at_send_power_on = modem_at_send_power_on_irq,
+	.modem_at_send_runtime = modem_at_send_irq,
+	.modem_at_send_power_on = modem_at_send_irq,
 	.sleep_ms = shell_sleep_ms_adapter,
 	.print = shell_print_adapter,
 	.error = shell_error_adapter,

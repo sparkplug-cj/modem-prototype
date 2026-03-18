@@ -13,7 +13,8 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 	char response[256];
 	int ret = -ETIMEDOUT;
 	int (*send_fn)(const char *command, char *response, size_t responseSize) =
-		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on : ops->modem_at_send;
+		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on :
+		(ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send);
 
 	ops->print(ops->ctx, "Waiting for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
@@ -139,7 +140,10 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return -EHOSTDOWN;
 	}
 
-	ret = ops->modem_at_send(argv[1], response, sizeof(response));
+	int (*send_fn)(const char *command, char *response, size_t responseSize) =
+		ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send;
+
+	ret = send_fn(argv[1], response, sizeof(response));
 	modem_at_get_last_diagnostics(&diagnostics);
 	if (ret != 0) {
 		if (ret == -ETIMEDOUT) {
