@@ -3,6 +3,7 @@
 #include "modem-at.h"
 #include "modem-board.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -23,6 +24,7 @@ struct modem_shell_ops {
 	void (*print)(void *ctx, const char *fmt, ...);
 	void (*error)(void *ctx, const char *fmt, ...);
 	void *ctx;
+	bool modemAtDebug;
 };
 
 int modem_shell_cmd_status_core(const struct modem_shell_ops *ops);

@@ -56,7 +56,7 @@ static void shell_sleep_ms_adapter(int32_t durationMs)
 static const struct device *const modemUart = DEVICE_DT_GET(DT_NODELABEL(modem_uart));
 static const struct shell *passthroughShell;
 static bool passthroughActive;
-static bool passthroughHexMode;
+static bool passthroughDebugMode;
 static uint8_t passthroughTail;
 static K_THREAD_STACK_DEFINE(passthroughStack, MODEM_PASSTHROUGH_STACK_SIZE);
 static struct k_thread passthroughThread;
@@ -194,6 +194,7 @@ static const struct modem_shell_ops shellOps = {
 	.sleep_ms = shell_sleep_ms_adapter,
 	.print = shell_print_adapter,
 	.error = shell_error_adapter,
+	.modemAtDebug = false,
 };
 
 static void modem_passthrough_stop(void)
@@ -208,7 +209,7 @@ static void modem_passthrough_stop(void)
 	shell_print(passthroughShell, "\r\n[modem passthrough disabled]");
 	passthroughShell = NULL;
 	passthroughTail = 0U;
-	passthroughHexMode = false;
+	passthroughDebugMode = false;
 	ring_buf_reset(&passthroughIrqRing);
 }
 
@@ -308,7 +309,7 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 		uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
 		uint32_t length = ring_buf_get(&passthroughIrqRing, buffer, sizeof(buffer));
 		if (length > 0U) {
-			if (passthroughHexMode) {
+			if (passthroughDebugMode) {
 				modem_passthrough_trace_chunk(passthroughShell, buffer, length);
 			} else {
 				modem_passthrough_print_text_chunk(passthroughShell, buffer, length);
@@ -386,7 +387,8 @@ static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 {
 	struct modem_shell_ops ops = shellOps;
 	ops.ctx = (void *)sh;
-	modemAtDebugShell = sh;
+	ops.modemAtDebug = (argc >= 2U) && (strcmp(argv[1], "--debug") == 0);
+	modemAtDebugShell = ops.modemAtDebug ? sh : NULL;
 	int ret = modem_shell_cmd_at_core(&ops, argc, argv);
 	modemAtDebugShell = NULL;
 	return ret;
@@ -394,13 +396,13 @@ static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **argv)
 {
-	bool hexMode = false;
+	bool debugMode = false;
 
 	if (argc >= 2U) {
-		if (strcmp(argv[1], "--hex") == 0) {
-			hexMode = true;
+		if (strcmp(argv[1], "--debug") == 0) {
+			debugMode = true;
 		} else {
-			shell_error(sh, "usage: modem passthrough [--hex]");
+			shell_error(sh, "usage: modem passthrough [--debug]");
 			return -EINVAL;
 		}
 	}
@@ -450,12 +452,12 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 	ring_buf_reset(&passthroughIrqRing);
 	passthroughShell = sh;
 	passthroughTail = 0U;
-	passthroughHexMode = hexMode;
+	passthroughDebugMode = debugMode;
 	passthroughActive = true;
 	uart_irq_rx_enable(modemUart);
 	shell_print(sh,
-		    hexMode ? "Entering modem UART passthrough (hex mode). Press Ctrl-X then Ctrl-Q to exit."
-		            : "Entering modem UART passthrough. Press Ctrl-X then Ctrl-Q to exit.");
+		    debugMode ? "Entering modem UART passthrough (debug mode). Press Ctrl-X then Ctrl-Q to exit."
+		              : "Entering modem UART passthrough. Press Ctrl-X then Ctrl-Q to exit.");
 	shell_set_bypass(sh, modem_passthrough_bypass_cb);
 	return 0;
 }
@@ -464,9 +466,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
 	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
-	SHELL_CMD_ARG(at, NULL, "Send AT command: at <command>", cmd_modem_at, 2, 0),
+	SHELL_CMD_ARG(at, NULL, "Send AT command: at [--debug] <command>", cmd_modem_at, 2, 1),
 	SHELL_CMD_ARG(passthrough, NULL,
-		      "Raw UART passthrough to modem. Use --hex for RX trace mode; Ctrl-X then Ctrl-Q exits.",
+		      "Raw UART passthrough to modem. Use --debug for RX trace mode; Ctrl-X then Ctrl-Q exits.",
 		      cmd_modem_passthrough, 1, 1),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );

@@ -207,6 +207,7 @@ TEST_CASE("modem status prints the current board state", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
@@ -233,6 +234,7 @@ TEST_CASE("modem status prints OFF when VGPIO is below threshold", "[modem-shell
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
@@ -259,6 +261,7 @@ TEST_CASE("modem status reports board read errors", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == -ENODEV);
@@ -285,6 +288,7 @@ TEST_CASE("modem status prints partial status when VGPIO read fails", "[modem-sh
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   REQUIRE(modem_shell_cmd_status_core(&ops) == 0);
@@ -310,6 +314,7 @@ TEST_CASE("modem reset prints OK on success", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   REQUIRE(modem_shell_cmd_reset_core(&ops) == 0);
@@ -336,6 +341,7 @@ TEST_CASE("modem power validates usage and dispatches requested operation", "[mo
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   modem_at_send_fake_fake.custom_fake = fake_at_send_power_on_success;
@@ -376,6 +382,7 @@ TEST_CASE("modem power reports unknown operations and downstream failures", "[mo
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "power";
@@ -413,6 +420,7 @@ TEST_CASE("modem power reports sleep-disable failures after successful power on"
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "power";
@@ -444,13 +452,14 @@ TEST_CASE("modem at validates usage", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
   char *argv[] = {command};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 1, argv) == -EINVAL);
-  REQUIRE(capture.lastError == "usage: at <command>");
+  REQUIRE(capture.lastError == "usage: at [--debug] <command>");
 }
 
 TEST_CASE("modem at refuses requests while modem rail is off", "[modem-shell]")
@@ -472,6 +481,7 @@ TEST_CASE("modem at refuses requests while modem rail is off", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
@@ -503,6 +513,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
@@ -512,7 +523,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(modem_at_send_fake_fake.call_count == 1);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
-  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1\n[modem-at] exit=inter-char-timeout bytes=16");
+  REQUIRE(capture.lastPrint == "Quectel RC7620-1");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -536,6 +547,7 @@ TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
@@ -543,7 +555,7 @@ TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
   char *argv[] = {command, ati};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
-  REQUIRE(capture.lastPrint == "[empty modem response]\n[modem-at] exit=matched-ok bytes=0");
+  REQUIRE(capture.lastPrint == "[empty modem response]");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -567,6 +579,7 @@ TEST_CASE("modem at reports echo-only modem response explicitly", "[modem-shell]
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
@@ -574,7 +587,7 @@ TEST_CASE("modem at reports echo-only modem response explicitly", "[modem-shell]
   char *argv[] = {command, ati};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
-  REQUIRE(capture.lastPrint == "[echo only]\nATI\n[modem-at] exit=inter-char-timeout bytes=3");
+  REQUIRE(capture.lastPrint == "ATI");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -601,6 +614,7 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
     shell_print_capture,
     shell_error_capture,
     &capture,
+    false,
   };
 
   char command[] = "at";
@@ -608,5 +622,73 @@ TEST_CASE("modem at reports transport errors cleanly", "[modem-shell]")
   char *argv[] = {command, csq};
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == -ETIMEDOUT);
-  // REQUIRE(capture.lastError == "AT command timed out waiting for modem response (exit=overall-timeout, bytes=0)");
+  REQUIRE(capture.lastError == "AT command timed out waiting for modem response");
+}
+
+TEST_CASE("modem at debug prints modem diagnostics on success", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.custom_fake = fake_at_send_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    true,
+  };
+
+  char command[] = "at";
+  char debug[] = "--debug";
+  char ati[] = "ATI";
+  char *argv[] = {command, debug, ati};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 3, argv) == 0);
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
+  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1\n[modem-at] exit=inter-char-timeout bytes=16");
+}
+
+TEST_CASE("modem at debug prints timeout diagnostics", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.return_val = -ETIMEDOUT;
+  g_lastDiagnostics.bytesReceived = 0;
+  g_lastDiagnostics.sawAnyByte = false;
+  g_lastDiagnostics.exitReason = MODEM_AT_EXIT_OVERALL_TIMEOUT;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    true,
+  };
+
+  char command[] = "at";
+  char debug[] = "--debug";
+  char csq[] = "AT+CSQ";
+  char *argv[] = {command, debug, csq};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 3, argv) == -ETIMEDOUT);
+  REQUIRE(capture.lastError == "AT command timed out waiting for modem response (exit=overall-timeout, bytes=0)");
 }
