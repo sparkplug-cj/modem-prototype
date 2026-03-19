@@ -17,6 +17,8 @@ FAKE_VALUE_FUNC0(int, modem_board_power_cycle_fake);
 FAKE_VALUE_FUNC0(int, modem_board_reset_pulse_fake);
 FAKE_VALUE_FUNC(int, modem_board_get_status_fake, struct modem_board_status *);
 FAKE_VALUE_FUNC3(int, modem_at_send_fake, const char *, char *, size_t);
+FAKE_VALUE_FUNC3(int, modem_at_send_runtime_fake, const char *, char *, size_t);
+FAKE_VALUE_FUNC3(int, modem_at_send_power_on_fake, const char *, char *, size_t);
 FAKE_VOID_FUNC1(modem_sleep_ms_fake, int32_t);
 
 namespace {
@@ -58,6 +60,8 @@ void reset_fakes()
   RESET_FAKE(modem_board_reset_pulse_fake);
   RESET_FAKE(modem_board_get_status_fake);
   RESET_FAKE(modem_at_send_fake);
+  RESET_FAKE(modem_at_send_runtime_fake);
+  RESET_FAKE(modem_at_send_power_on_fake);
   RESET_FAKE(modem_sleep_ms_fake);
   FFF_RESET_HISTORY();
   g_lastDiagnostics = {};
@@ -154,6 +158,18 @@ int fake_at_send_power_on_ksleep_fail(const char *command, char *response, size_
     return -ETIMEDOUT;
   }
   return -EINVAL;
+}
+
+int fake_at_send_runtime_success(const char *command, char *response, size_t responseSize)
+{
+  snprintf(response, responseSize, "runtime:%s", command);
+  return 0;
+}
+
+int fake_at_send_power_on_route_success(const char *command, char *response, size_t responseSize)
+{
+  snprintf(response, responseSize, "power-on:%s", command);
+  return 0;
 }
 
 
@@ -434,6 +450,72 @@ TEST_CASE("modem power reports sleep-disable failures after successful power on"
   REQUIRE(capture.lastError == "failed to disable modem sleep: -110");
 }
 
+TEST_CASE("modem power prefers dedicated power-on sender when configured", "[modem-shell]")
+{
+  reset_fakes();
+  modem_at_send_power_on_fake_fake.custom_fake = fake_at_send_power_on_route_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "power";
+  char on[] = "on";
+  char *argv[] = {command, on};
+
+  REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == 0);
+  REQUIRE(modem_at_send_power_on_fake_fake.call_count == 2);
+  REQUIRE(modem_at_send_runtime_fake_fake.call_count == 0);
+  REQUIRE(modem_at_send_fake_fake.call_count == 0);
+  REQUIRE(std::string(modem_at_send_power_on_fake_fake.arg0_history[0]) == "AT");
+  REQUIRE(std::string(modem_at_send_power_on_fake_fake.arg0_history[1]) == "AT+KSLEEP=2");
+  REQUIRE(capture.lastPrint == "OK");
+}
+
+TEST_CASE("modem power falls back to runtime sender before generic sender", "[modem-shell]")
+{
+  reset_fakes();
+  modem_at_send_runtime_fake_fake.custom_fake = fake_at_send_power_on_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    nullptr,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "power";
+  char on[] = "on";
+  char *argv[] = {command, on};
+
+  REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == 0);
+  REQUIRE(modem_at_send_runtime_fake_fake.call_count == 2);
+  REQUIRE(modem_at_send_fake_fake.call_count == 0);
+}
+
 TEST_CASE("modem at validates usage", "[modem-shell]")
 {
   reset_fakes();
@@ -525,6 +607,74 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
   REQUIRE(capture.lastPrint == "Quectel RC7620-1");
   REQUIRE(capture.lastError.empty());
+}
+
+TEST_CASE("modem at prefers runtime sender when configured", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_runtime_fake_fake.custom_fake = fake_at_send_runtime_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "at";
+  char ati[] = "ATI";
+  char *argv[] = {command, ati};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
+  REQUIRE(modem_at_send_runtime_fake_fake.call_count == 1);
+  REQUIRE(modem_at_send_fake_fake.call_count == 0);
+  REQUIRE(modem_at_send_power_on_fake_fake.call_count == 0);
+  REQUIRE(std::string(modem_at_send_runtime_fake_fake.arg0_val) == "ATI");
+  REQUIRE(capture.lastPrint == "runtime:ATI");
+}
+
+TEST_CASE("modem at falls back to generic sender when runtime sender is absent", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.custom_fake = fake_at_send_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    nullptr,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "at";
+  char ati[] = "ATI";
+  char *argv[] = {command, ati};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
+  REQUIRE(modem_at_send_fake_fake.call_count == 1);
+  REQUIRE(modem_at_send_power_on_fake_fake.call_count == 0);
+  REQUIRE(capture.lastPrint == "Quectel RC7620-1");
 }
 
 TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")

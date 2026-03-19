@@ -8,19 +8,59 @@
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
 
+typedef int (*modem_shell_at_send_fn_t)(const char *command, char *response, size_t responseSize);
+
+enum modem_shell_at_send_mode {
+	MODEM_SHELL_AT_SEND_MODE_RUNTIME = 0,
+	MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+};
+
+static modem_shell_at_send_fn_t modem_shell_select_at_sender(const struct modem_shell_ops *ops,
+					     enum modem_shell_at_send_mode mode)
+{
+	if ((mode == MODEM_SHELL_AT_SEND_MODE_POWER_ON) && (ops->modem_at_send_power_on != NULL)) {
+		return ops->modem_at_send_power_on;
+	}
+
+	if (ops->modem_at_send_runtime != NULL) {
+		return ops->modem_at_send_runtime;
+	}
+
+	return ops->modem_at_send;
+}
+
+static int modem_shell_run_at_command(const struct modem_shell_ops *ops,
+				      enum modem_shell_at_send_mode mode,
+				      const char *command,
+				      char *response,
+				      size_t responseSize)
+{
+	modem_shell_at_send_fn_t send_fn = modem_shell_select_at_sender(ops, mode);
+	if (send_fn == NULL) {
+		ops->error(ops->ctx,
+			(mode == MODEM_SHELL_AT_SEND_MODE_POWER_ON) ?
+				"no modem AT sender configured for power-on flow" :
+				"no modem AT sender configured for runtime AT command");
+		return -ENOSYS;
+	}
+
+	return send_fn(command, response, responseSize);
+}
+
 static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops *ops)
 {
 	char response[256];
 	int ret = -ETIMEDOUT;
-	int (*send_fn)(const char *command, char *response, size_t responseSize) =
-		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on :
-		(ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send);
 
 	ops->print(ops->ctx, "Waiting 10s for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
-		ret = send_fn(MODEM_AT_SYNC_COMMAND, response, sizeof(response));
+		ret = modem_shell_run_at_command(ops,
+					       MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+					       MODEM_AT_SYNC_COMMAND,
+					       response,
+					       sizeof(response));
 		if (ret == 0) {
 			break;
 		}
@@ -32,7 +72,11 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 	}
 
 	ops->print(ops->ctx, "Disabling sleep...");
-	ret = send_fn(MODEM_AT_DISABLE_SLEEP_COMMAND, response, sizeof(response));
+	ret = modem_shell_run_at_command(ops,
+					 MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+					 MODEM_AT_DISABLE_SLEEP_COMMAND,
+					 response,
+					 sizeof(response));
 	if (ret != 0) {
 		ops->error(ops->ctx, "failed to disable modem sleep: %d", ret);
 		return ret;
@@ -148,10 +192,11 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return -EHOSTDOWN;
 	}
 
-	int (*send_fn)(const char *command, char *response, size_t responseSize) =
-		ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send;
-
-	ret = send_fn(command, response, sizeof(response));
+	ret = modem_shell_run_at_command(ops,
+					 MODEM_SHELL_AT_SEND_MODE_RUNTIME,
+					 command,
+					 response,
+					 sizeof(response));
 	modem_at_get_last_diagnostics(&diagnostics);
 	if (ret != 0) {
 		if (ops->modemAtDebug && (response[0] != '\0')) {

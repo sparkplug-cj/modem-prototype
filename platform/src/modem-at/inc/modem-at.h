@@ -25,7 +25,24 @@ struct modem_at_diagnostics {
 	int lastUartRet;
 };
 
+struct modem_at_irq_transport {
+	void *ctx;
+	int (*open)(void *ctx, char *response, size_t responseSize);
+	void (*close)(void *ctx);
+	uint32_t (*read)(void *ctx, uint8_t *buffer, size_t bufferSize);
+};
+
+struct modem_at_irq_debug {
+	void *ctx;
+	void (*log)(void *ctx, const char *fmt, ...);
+};
+
 int modem_at_send(const char *command, char *response, size_t responseSize);
+int modem_at_send_irq(const char *command,
+		     char *response,
+		     size_t responseSize,
+		     const struct modem_at_irq_transport *transport,
+		     const struct modem_at_irq_debug *debug);
 int modem_at_uart_write(const uint8_t *data, size_t length);
 int modem_at_uart_read_byte(uint8_t *byte);
 bool modem_at_uart_is_ready(void);
