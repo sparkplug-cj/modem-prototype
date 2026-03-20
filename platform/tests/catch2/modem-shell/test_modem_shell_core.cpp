@@ -108,7 +108,7 @@ int fake_status_unpowered(struct modem_board_status *out)
 int fake_at_send_success(const char *command, char *response, size_t responseSize)
 {
   (void)command;
-  snprintf(response, responseSize, "Quectel RC7620-1");
+  snprintf(response, responseSize, "Sierra Wireless RC7620-1");
   g_lastDiagnostics.bytesReceived = strlen(response);
   g_lastDiagnostics.sawAnyByte = true;
   g_lastDiagnostics.exitReason = MODEM_AT_EXIT_INTER_CHAR_TIMEOUT;
@@ -605,7 +605,7 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(modem_at_send_fake_fake.call_count == 1);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
-  REQUIRE(capture.lastPrint == "Quectel RC7620-1");
+  REQUIRE(capture.lastPrint == "Sierra Wireless RC7620-1");
   REQUIRE(capture.lastError.empty());
 }
 
@@ -674,7 +674,7 @@ TEST_CASE("modem at falls back to generic sender when runtime sender is absent",
   REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
   REQUIRE(modem_at_send_fake_fake.call_count == 1);
   REQUIRE(modem_at_send_power_on_fake_fake.call_count == 0);
-  REQUIRE(capture.lastPrint == "Quectel RC7620-1");
+  REQUIRE(capture.lastPrint == "Sierra Wireless RC7620-1");
 }
 
 TEST_CASE("modem at reports empty modem response explicitly", "[modem-shell]")
@@ -805,7 +805,7 @@ TEST_CASE("modem at debug prints modem diagnostics on success", "[modem-shell]")
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 3, argv) == 0);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "ATI");
-  REQUIRE(capture.lastPrint == "[raw modem response]\nQuectel RC7620-1\n[modem-at] exit=inter-char-timeout bytes=16");
+  REQUIRE(capture.lastPrint == "[raw modem response]\nSierra Wireless RC7620-1\n[modem-at] exit=inter-char-timeout bytes=24");
 }
 
 TEST_CASE("modem at debug prints timeout diagnostics", "[modem-shell]")

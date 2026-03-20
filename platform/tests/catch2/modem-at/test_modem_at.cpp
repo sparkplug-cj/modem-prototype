@@ -225,12 +225,12 @@ TEST_CASE("modem_at_send_irq times out and still closes transport", "[modem-at]"
 TEST_CASE("modem_at_send uses polling UART path and trims response", "[modem-at]")
 {
   reset_uart();
-  g_uart.pendingResponse = "\r\nQuectel RC7620-1\r\nOK\r\n";
+  g_uart.pendingResponse = "\r\nSierra Wireless RC7620-1\r\nOK\r\n";
 
   char response[64] = {};
   REQUIRE(modem_at_send("ATI", response, sizeof(response)) == 0);
   REQUIRE(g_uart.writes == std::string("ATI\r"));
-  REQUIRE(std::string(response) == "Quectel RC7620-1\nOK");
+  REQUIRE(std::string(response) == "Sierra Wireless RC7620-1\nOK");
 
   modem_at_diagnostics diagnostics = {};
   modem_at_get_last_diagnostics(&diagnostics);
