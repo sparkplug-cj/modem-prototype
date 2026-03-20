@@ -39,3 +39,11 @@ configure_catch2_test_target(platform_catch2_modem_shell
     ${PLATFORM_SRC_DIR}/modem-board/inc
     ${PLATFORM_SRC_DIR}/modem-shell
 )
+
+configure_catch2_test_target(platform_catch2_modem_net
+  SOURCES
+    ${PLATFORM_SRC_DIR}/modem-net/modem-net-core.c
+    ${CMAKE_CURRENT_LIST_DIR}/modem-net/test_modem_net_core.cpp
+  INCLUDE_DIRS
+    ${PLATFORM_SRC_DIR}/modem-net
+)

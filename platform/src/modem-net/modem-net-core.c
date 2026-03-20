@@ -1,0 +1,176 @@
+#include "modem-net-core.h"
+
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+
+#define MODEM_UART_OWNER_NONE 0
+#define MODEM_UART_OWNER_AT 1
+#define MODEM_UART_OWNER_PASSTHROUGH 2
+#define MODEM_UART_OWNER_PPP 3
+
+static const char *modem_net_owner_name(int owner)
+{
+	switch (owner) {
+	case MODEM_UART_OWNER_AT:
+		return "at";
+	case MODEM_UART_OWNER_PASSTHROUGH:
+		return "passthrough";
+	case MODEM_UART_OWNER_PPP:
+		return "ppp";
+	default:
+		return "none";
+	}
+}
+
+int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, char **argv)
+{
+	const char *apn;
+	int ret;
+
+	if ((ops == NULL) || (ops->owner_get == NULL) || (ops->ensure_powered == NULL) ||
+	    (ops->configure_context == NULL) || (ops->open_uart_session == NULL) ||
+	    (ops->dial_ppp == NULL) || (ops->attach_ppp == NULL) ||
+	    (ops->wait_for_network == NULL) || (ops->close_uart_session == NULL) ||
+	    (ops->escape_and_hangup == NULL) || (ops->set_apn == NULL) ||
+	    (ops->set_error == NULL) || (ops->clear_error == NULL) ||
+	    (ops->print == NULL) || (ops->error == NULL)) {
+		return -EINVAL;
+	}
+
+	ops->clear_error();
+
+	if (argc < 2U) {
+		ops->error(ops->ctx, "usage: net connect <apn>");
+		ops->set_error(-EINVAL, "APN required");
+		return -EINVAL;
+	}
+
+	apn = argv[1];
+	if ((apn == NULL) || (apn[0] == '\0')) {
+		ops->error(ops->ctx, "usage: net connect <apn>");
+		ops->set_error(-EINVAL, "APN required");
+		return -EINVAL;
+	}
+
+	if (ops->owner_get() != MODEM_UART_OWNER_NONE) {
+		ops->error(ops->ctx, "modem UART is busy");
+		ops->set_error(-EBUSY, "modem UART busy");
+		return -EBUSY;
+	}
+
+	ops->set_apn(apn);
+
+	ret = ops->ensure_powered(ops->ctx);
+	if (ret != 0) {
+		goto out_fail;
+	}
+
+	ret = ops->configure_context(ops->ctx, apn);
+	if (ret != 0) {
+		goto out_fail;
+	}
+
+	ret = ops->open_uart_session();
+	if (ret != 0) {
+		goto out_fail;
+	}
+
+	ret = ops->dial_ppp(ops->ctx);
+	if (ret != 0) {
+		goto out_close;
+	}
+
+	ret = ops->attach_ppp();
+	if (ret != 0) {
+		goto out_close;
+	}
+
+	ret = ops->wait_for_network(ops->ctx);
+	if (ret != 0) {
+		goto out_close;
+	}
+
+	ops->print(ops->ctx, "PPP connected");
+	return 0;
+
+out_close:
+	(void)ops->escape_and_hangup();
+	ops->close_uart_session();
+out_fail:
+	ops->set_error(ret, "connect failed");
+	ops->error(ops->ctx, "connect failed: %d", ret);
+	return ret;
+}
+
+int modem_net_cmd_disconnect_core(const struct modem_net_ops *ops, size_t argc, char **argv)
+{
+	struct modem_net_status status = {0};
+	int ret;
+
+	(void)argc;
+	(void)argv;
+
+	if ((ops == NULL) || (ops->get_status == NULL) || (ops->print == NULL) ||
+	    (ops->escape_and_hangup == NULL) || (ops->close_uart_session == NULL)) {
+		return -EINVAL;
+	}
+
+	ret = ops->get_status(&status);
+	if (ret != 0) {
+		return ret;
+	}
+
+	if (!status.sessionOpen) {
+		ops->print(ops->ctx, "PPP already disconnected");
+		return 0;
+	}
+
+	ops->print(ops->ctx, "Disconnecting PPP...");
+	(void)ops->escape_and_hangup();
+	ops->close_uart_session();
+	ops->print(ops->ctx, "PPP disconnected");
+	return 0;
+}
+
+int modem_net_cmd_status_core(const struct modem_net_ops *ops, size_t argc, char **argv)
+{
+	struct modem_net_status status = {0};
+	const char *pppState;
+	int ret;
+
+	(void)argc;
+	(void)argv;
+
+	if ((ops == NULL) || (ops->get_status == NULL) || (ops->print == NULL) ||
+	    (ops->error == NULL)) {
+		return -EINVAL;
+	}
+
+	ret = ops->get_status(&status);
+	if (ret != 0) {
+		ops->error(ops->ctx, "status read failed: %d", ret);
+		return ret;
+	}
+
+	if (status.connected) {
+		pppState = "connected";
+	} else if (status.sessionOpen) {
+		pppState = "session-open";
+	} else {
+		pppState = "down";
+	}
+
+	ops->print(ops->ctx,
+		   "modem=%s owner=%s ppp=%s ip=%s dns=%s apn=%s last_error=%d%s%s",
+		   status.modemPowered ? "on" : "off",
+		   modem_net_owner_name(status.uartOwner),
+		   pppState,
+		   ((status.ipv4 != NULL) && (status.ipv4[0] != '\0')) ? status.ipv4 : "-",
+		   status.dnsReady ? "ready" : "pending",
+		   ((status.apn != NULL) && (status.apn[0] != '\0')) ? status.apn : "-",
+		   status.lastError,
+		   ((status.lastErrorText != NULL) && (status.lastErrorText[0] != '\0')) ? " " : "",
+		   ((status.lastErrorText != NULL) && (status.lastErrorText[0] != '\0')) ? status.lastErrorText : "");
+	return 0;
+}
