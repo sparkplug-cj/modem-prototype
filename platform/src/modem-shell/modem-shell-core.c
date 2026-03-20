@@ -8,19 +8,59 @@
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
 
+typedef int (*modem_shell_at_send_fn_t)(const char *command, char *response, size_t responseSize);
+
+enum modem_shell_at_send_mode {
+	MODEM_SHELL_AT_SEND_MODE_RUNTIME = 0,
+	MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+};
+
+static modem_shell_at_send_fn_t modem_shell_select_at_sender(const struct modem_shell_ops *ops,
+					     enum modem_shell_at_send_mode mode)
+{
+	if ((mode == MODEM_SHELL_AT_SEND_MODE_POWER_ON) && (ops->modem_at_send_power_on != NULL)) {
+		return ops->modem_at_send_power_on;
+	}
+
+	if (ops->modem_at_send_runtime != NULL) {
+		return ops->modem_at_send_runtime;
+	}
+
+	return ops->modem_at_send;
+}
+
+static int modem_shell_run_at_command(const struct modem_shell_ops *ops,
+				      enum modem_shell_at_send_mode mode,
+				      const char *command,
+				      char *response,
+				      size_t responseSize)
+{
+	modem_shell_at_send_fn_t send_fn = modem_shell_select_at_sender(ops, mode);
+	if (send_fn == NULL) {
+		ops->error(ops->ctx,
+			(mode == MODEM_SHELL_AT_SEND_MODE_POWER_ON) ?
+				"no modem AT sender configured for power-on flow" :
+				"no modem AT sender configured for runtime AT command");
+		return -ENOSYS;
+	}
+
+	return send_fn(command, response, responseSize);
+}
+
 static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops *ops)
 {
 	char response[256];
 	int ret = -ETIMEDOUT;
-	int (*send_fn)(const char *command, char *response, size_t responseSize) =
-		ops->modem_at_send_power_on != NULL ? ops->modem_at_send_power_on :
-		(ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send);
 
 	ops->print(ops->ctx, "Waiting 10s for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
-		ret = send_fn(MODEM_AT_SYNC_COMMAND, response, sizeof(response));
+		ret = modem_shell_run_at_command(ops,
+					       MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+					       MODEM_AT_SYNC_COMMAND,
+					       response,
+					       sizeof(response));
 		if (ret == 0) {
 			break;
 		}
@@ -32,7 +72,11 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 	}
 
 	ops->print(ops->ctx, "Disabling sleep...");
-	ret = send_fn(MODEM_AT_DISABLE_SLEEP_COMMAND, response, sizeof(response));
+	ret = modem_shell_run_at_command(ops,
+					 MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+					 MODEM_AT_DISABLE_SLEEP_COMMAND,
+					 response,
+					 sizeof(response));
 	if (ret != 0) {
 		ops->error(ops->ctx, "failed to disable modem sleep: %d", ret);
 		return ret;
@@ -120,14 +164,22 @@ int modem_shell_cmd_power_core(const struct modem_shell_ops *ops, size_t argc, c
 int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char **argv)
 {
 	struct modem_board_status st;
-	struct modem_at_diagnostics diagnostics;
-	char response[256];
+	struct modem_at_diagnostics diagnostics = {0};
+	char response[256] = {0};
+	const char *command;
+	size_t commandIndex = 1U;
 	int ret;
 
-	if (argc < 2U) {
-		ops->error(ops->ctx, "usage: at <command>");
+	if ((argc >= 2U) && (strcmp(argv[1], "--debug") == 0)) {
+		commandIndex = 2U;
+	}
+
+	if (argc <= commandIndex) {
+		ops->error(ops->ctx, "usage: at [--debug] <command>");
 		return -EINVAL;
 	}
+
+	command = argv[commandIndex];
 
 	ret = ops->modem_board_get_status(&st);
 	if (ret != 0) {
@@ -140,13 +192,14 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return -EHOSTDOWN;
 	}
 
-	int (*send_fn)(const char *command, char *response, size_t responseSize) =
-		ops->modem_at_send_runtime != NULL ? ops->modem_at_send_runtime : ops->modem_at_send;
-
-	ret = send_fn(argv[1], response, sizeof(response));
+	ret = modem_shell_run_at_command(ops,
+					 MODEM_SHELL_AT_SEND_MODE_RUNTIME,
+					 command,
+					 response,
+					 sizeof(response));
 	modem_at_get_last_diagnostics(&diagnostics);
 	if (ret != 0) {
-		if (response[0] != '\0') {
+		if (ops->modemAtDebug && (response[0] != '\0')) {
 			ops->error(ops->ctx,
 				"[raw modem response on error]\n%s\n[modem-at] exit=%s bytes=%u ret=%d",
 				response,
@@ -154,29 +207,39 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 				(unsigned int)diagnostics.bytesReceived,
 				ret);
 		} else if (ret == -ETIMEDOUT) {
-			ops->error(ops->ctx,
-				"AT command timed out waiting for modem response (exit=%s, bytes=%u)",
-				modem_at_exit_reason_str(diagnostics.exitReason),
-				(unsigned int)diagnostics.bytesReceived);
-		} else {
+			if (ops->modemAtDebug) {
+				ops->error(ops->ctx,
+					"AT command timed out waiting for modem response (exit=%s, bytes=%u)",
+					modem_at_exit_reason_str(diagnostics.exitReason),
+					(unsigned int)diagnostics.bytesReceived);
+			} else {
+				ops->error(ops->ctx, "AT command timed out waiting for modem response");
+			}
+		} else if (ops->modemAtDebug) {
 			ops->error(ops->ctx,
 				"AT command failed: %d (exit=%s, bytes=%u)",
 				ret,
 				modem_at_exit_reason_str(diagnostics.exitReason),
 				(unsigned int)diagnostics.bytesReceived);
+		} else {
+			ops->error(ops->ctx, "AT command failed: %d", ret);
 		}
 		return ret;
 	}
 
 	if (response[0] == '\0') {
-		ops->print(ops->ctx,
-			"[empty modem response]\n[modem-at] exit=%s bytes=%u",
-			modem_at_exit_reason_str(diagnostics.exitReason),
-			(unsigned int)diagnostics.bytesReceived);
+		if (ops->modemAtDebug) {
+			ops->print(ops->ctx,
+				"[empty modem response]\n[modem-at] exit=%s bytes=%u",
+				modem_at_exit_reason_str(diagnostics.exitReason),
+				(unsigned int)diagnostics.bytesReceived);
+		} else {
+			ops->print(ops->ctx, "[empty modem response]");
+		}
 		return 0;
 	}
 
-	if (strcmp(response, argv[1]) == 0) {
+	if (ops->modemAtDebug && (strcmp(response, command) == 0)) {
 		ops->print(ops->ctx,
 			"[echo only]\n%s\n[modem-at] exit=%s bytes=%u",
 			response,
@@ -185,10 +248,14 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return 0;
 	}
 
-	ops->print(ops->ctx,
-		"[raw modem response]\n%s\n[modem-at] exit=%s bytes=%u",
-		response,
-		modem_at_exit_reason_str(diagnostics.exitReason),
-		(unsigned int)diagnostics.bytesReceived);
+	if (ops->modemAtDebug) {
+		ops->print(ops->ctx,
+			"[raw modem response]\n%s\n[modem-at] exit=%s bytes=%u",
+			response,
+			modem_at_exit_reason_str(diagnostics.exitReason),
+			(unsigned int)diagnostics.bytesReceived);
+	} else {
+		ops->print(ops->ctx, "%s", response);
+	}
 	return 0;
 }
