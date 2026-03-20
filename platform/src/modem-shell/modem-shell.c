@@ -3,6 +3,7 @@
 #include "modem-at.h"
 #include "modem-board.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -166,6 +167,35 @@ static void modem_at_debug_log_adapter(void *ctx, const char *fmt, ...)
 	va_end(args);
 
 	shell_fprintf_normal(modemAtDebugShell, "%s\n", buffer);
+}
+
+static bool modem_shell_at_debug_requested(size_t argc, char **argv)
+{
+	char *raw;
+
+	if (argc <= 1U) {
+		return false;
+	}
+
+	if (strcmp(argv[1], "--debug") == 0) {
+		return true;
+	}
+
+	if (argc != 2U) {
+		return false;
+	}
+
+	raw = argv[1];
+	while ((*raw != '\0') && isspace((unsigned char)*raw)) {
+		raw++;
+	}
+
+	if (strncmp(raw, "--debug", strlen("--debug")) != 0) {
+		return false;
+	}
+
+	return (raw[strlen("--debug")] == '\0') ||
+	       isspace((unsigned char)raw[strlen("--debug")]);
 }
 
 static int modem_shell_at_send_irq(const char *command, char *response, size_t responseSize)
@@ -401,7 +431,7 @@ static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 
 	struct modem_shell_ops ops = shellOps;
 	ops.ctx = (void *)sh;
-	ops.modemAtDebug = (argc >= 2U) && (strcmp(argv[1], "--debug") == 0);
+	ops.modemAtDebug = modem_shell_at_debug_requested(argc, argv);
 	modemAtDebugShell = ops.modemAtDebug ? sh : NULL;
 	int ret = modem_shell_cmd_at_core(&ops, argc, argv);
 	modemAtDebugShell = NULL;
@@ -483,7 +513,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
 	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
-	SHELL_CMD_ARG(at, NULL, "Send AT command: at [--debug] <command>", cmd_modem_at, 2, 1),
+	SHELL_CMD_ARG(at, NULL, "Send AT command: at [--debug] <command>", cmd_modem_at, 2, SHELL_OPT_ARG_RAW),
 	SHELL_CMD_ARG(passthrough, NULL,
 		      "Raw UART passthrough to modem. Use --debug for RX trace mode; Ctrl-X then Ctrl-Q exits.",
 		      cmd_modem_passthrough, 1, 1),

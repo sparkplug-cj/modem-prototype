@@ -1,5 +1,6 @@
 #include "modem-shell-core.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <string.h>
 
@@ -45,6 +46,75 @@ static int modem_shell_run_at_command(const struct modem_shell_ops *ops,
 	}
 
 	return send_fn(command, response, responseSize);
+}
+
+static char *modem_shell_trim_leading_spaces(char *text)
+{
+	while ((*text != '\0') && isspace((unsigned char)*text)) {
+		text++;
+	}
+
+	return text;
+}
+
+static char *modem_shell_trim_matching_quotes(char *text)
+{
+	size_t len = strlen(text);
+
+	if (len < 2U) {
+		return text;
+	}
+
+	if (((text[0] == '"') && (text[len - 1U] == '"')) ||
+	    ((text[0] == '\'') && (text[len - 1U] == '\''))) {
+		text[len - 1U] = '\0';
+		return text + 1;
+	}
+
+	return text;
+}
+
+static char *modem_shell_parse_at_command(size_t argc, char **argv, bool *debugEnabled)
+{
+	char *command;
+
+	*debugEnabled = false;
+
+	if (argc <= 1U) {
+		return NULL;
+	}
+
+	if ((argc >= 2U) && (strcmp(argv[1], "--debug") == 0)) {
+		*debugEnabled = true;
+		if (argc <= 2U) {
+			return NULL;
+		}
+
+		return argv[2];
+	}
+
+	if (argc > 2U) {
+		return argv[1];
+	}
+
+	command = modem_shell_trim_leading_spaces(argv[1]);
+	if (strncmp(command, "--debug", strlen("--debug")) == 0) {
+		char next = command[strlen("--debug")];
+
+		if ((next == '\0') || isspace((unsigned char)next)) {
+			*debugEnabled = true;
+			command = modem_shell_trim_leading_spaces(command + strlen("--debug"));
+		}
+	}
+
+	if (*command == '\0') {
+		return NULL;
+	}
+
+	command = modem_shell_trim_matching_quotes(command);
+	command = modem_shell_trim_leading_spaces(command);
+
+	return (*command == '\0') ? NULL : command;
 }
 
 static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops *ops)
@@ -166,20 +236,17 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 	struct modem_board_status st;
 	struct modem_at_diagnostics diagnostics = {0};
 	char response[256] = {0};
+	bool debugRequested = false;
+	bool debugOutputEnabled;
 	const char *command;
-	size_t commandIndex = 1U;
 	int ret;
 
-	if ((argc >= 2U) && (strcmp(argv[1], "--debug") == 0)) {
-		commandIndex = 2U;
-	}
-
-	if (argc <= commandIndex) {
+	command = modem_shell_parse_at_command(argc, argv, &debugRequested);
+	debugOutputEnabled = ops->modemAtDebug || debugRequested;
+	if (command == NULL) {
 		ops->error(ops->ctx, "usage: at [--debug] <command>");
 		return -EINVAL;
 	}
-
-	command = argv[commandIndex];
 
 	ret = ops->modem_board_get_status(&st);
 	if (ret != 0) {
@@ -199,7 +266,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 					 sizeof(response));
 	modem_at_get_last_diagnostics(&diagnostics);
 	if (ret != 0) {
-		if (ops->modemAtDebug && (response[0] != '\0')) {
+		if (debugOutputEnabled && (response[0] != '\0')) {
 			ops->error(ops->ctx,
 				"[raw modem response on error]\n%s\n[modem-at] exit=%s bytes=%u ret=%d",
 				response,
@@ -207,7 +274,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 				(unsigned int)diagnostics.bytesReceived,
 				ret);
 		} else if (ret == -ETIMEDOUT) {
-			if (ops->modemAtDebug) {
+			if (debugOutputEnabled) {
 				ops->error(ops->ctx,
 					"AT command timed out waiting for modem response (exit=%s, bytes=%u)",
 					modem_at_exit_reason_str(diagnostics.exitReason),
@@ -215,7 +282,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 			} else {
 				ops->error(ops->ctx, "AT command timed out waiting for modem response");
 			}
-		} else if (ops->modemAtDebug) {
+		} else if (debugOutputEnabled) {
 			ops->error(ops->ctx,
 				"AT command failed: %d (exit=%s, bytes=%u)",
 				ret,
@@ -228,7 +295,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 	}
 
 	if (response[0] == '\0') {
-		if (ops->modemAtDebug) {
+		if (debugOutputEnabled) {
 			ops->print(ops->ctx,
 				"[empty modem response]\n[modem-at] exit=%s bytes=%u",
 				modem_at_exit_reason_str(diagnostics.exitReason),
@@ -239,7 +306,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return 0;
 	}
 
-	if (ops->modemAtDebug && (strcmp(response, command) == 0)) {
+	if (debugOutputEnabled && (strcmp(response, command) == 0)) {
 		ops->print(ops->ctx,
 			"[echo only]\n%s\n[modem-at] exit=%s bytes=%u",
 			response,
@@ -248,7 +315,7 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 		return 0;
 	}
 
-	if (ops->modemAtDebug) {
+	if (debugOutputEnabled) {
 		ops->print(ops->ctx,
 			"[raw modem response]\n%s\n[modem-at] exit=%s bytes=%u",
 			response,

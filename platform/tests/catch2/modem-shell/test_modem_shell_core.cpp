@@ -609,6 +609,70 @@ TEST_CASE("modem at prints transport response on success", "[modem-shell]")
   REQUIRE(capture.lastError.empty());
 }
 
+TEST_CASE("modem at accepts quoted raw query commands", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.custom_fake = fake_at_send_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "at";
+  char query[] = "\"AT+COPS?\"";
+  char *argv[] = {command, query};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "AT+COPS?");
+  REQUIRE(capture.lastPrint == "Sierra Wireless RC7620-1");
+}
+
+TEST_CASE("modem at accepts raw debug-prefixed query commands", "[modem-shell]")
+{
+  reset_fakes();
+  modem_board_get_status_fake_fake.custom_fake = fake_status_success;
+  modem_at_send_fake_fake.custom_fake = fake_at_send_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_at_send_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+  };
+
+  char command[] = "at";
+  char query[] = "--debug \"AT!UIMS?\"";
+  char *argv[] = {command, query};
+
+  REQUIRE(modem_shell_cmd_at_core(&ops, 2, argv) == 0);
+  REQUIRE(std::string(modem_at_send_fake_fake.arg0_val) == "AT!UIMS?");
+  REQUIRE(capture.lastPrint == "[raw modem response]\nSierra Wireless RC7620-1\n[modem-at] exit=inter-char-timeout bytes=24");
+}
+
 TEST_CASE("modem at prefers runtime sender when configured", "[modem-shell]")
 {
   reset_fakes();
