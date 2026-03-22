@@ -16,6 +16,7 @@
 #include <zephyr/modem/pipe.h>
 #include <zephyr/modem/ppp.h>
 #include <zephyr/net/dns_resolve.h>
+#include <zephyr/net/ppp.h>
 #include <zephyr/net/net_event.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
@@ -146,8 +147,9 @@ static int modem_net_sync_and_disable_sleep(const struct shell *sh)
 	return modem_net_send_at("AT+KSLEEP=2", response, sizeof(response));
 }
 
-static int modem_net_ensure_powered(const struct shell *sh)
+static int modem_net_ensure_powered(void *ctx)
 {
+	const struct shell *sh = ctx;
 	struct modem_board_status status;
 	int ret = modem_board_get_status(&status);
 	if (ret != 0) {
@@ -167,8 +169,9 @@ static int modem_net_ensure_powered(const struct shell *sh)
 	return modem_net_sync_and_disable_sleep(sh);
 }
 
-static int modem_net_configure_context(const struct shell *sh, const char *apn)
+static int modem_net_configure_context(void *ctx, const char *apn)
 {
+	const struct shell *sh = ctx;
 	char command[96];
 	char response[MODEM_NET_AT_RESPONSE_SIZE];
 	int ret;
@@ -266,8 +269,9 @@ static int modem_net_wait_for_connect_text(char *buffer, size_t bufferSize)
 	return -ETIMEDOUT;
 }
 
-static int modem_net_dial_ppp(const struct shell *sh)
+static int modem_net_dial_ppp(void *ctx)
 {
+	const struct shell *sh = ctx;
 	static const char dialCommand[] = "ATD*99***1#\r";
 	char response[MODEM_NET_AT_RESPONSE_SIZE] = {0};
 	int ret;
@@ -306,8 +310,9 @@ static int modem_net_attach_ppp(void)
 	return net_if_up(modemNetIface);
 }
 
-static int modem_net_wait_for_network(const struct shell *sh)
+static int modem_net_wait_for_network(void *ctx)
 {
+	const struct shell *sh = ctx;
 	int ret;
 
 	shell_print(sh, "Waiting for IP link...");
@@ -390,6 +395,11 @@ static void modem_net_set_apn(const char *apn)
 	snprintk(modemNetApn, sizeof(modemNetApn), "%s", apn);
 }
 
+static int modem_net_owner_get(void)
+{
+	return (int)modem_uart_owner_get();
+}
+
 static int modem_net_get_status(struct modem_net_status *out)
 {
 	struct modem_board_status boardStatus;
@@ -430,7 +440,7 @@ static int modem_net_get_status(struct modem_net_status *out)
 static struct modem_net_ops modem_net_make_ops(const struct shell *sh)
 {
 	return (struct modem_net_ops){
-		.owner_get = modem_uart_owner_get,
+		.owner_get = modem_net_owner_get,
 		.ensure_powered = modem_net_ensure_powered,
 		.configure_context = modem_net_configure_context,
 		.open_uart_session = modem_net_open_uart_session,
