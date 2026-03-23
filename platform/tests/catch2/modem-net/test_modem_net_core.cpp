@@ -188,19 +188,19 @@ modem_net_ops make_ops()
 
 } // namespace
 
-TEST_CASE("net connect requires an APN", "[modem-net]")
+TEST_CASE("modem ppp connect requires an APN", "[modem-net]")
 {
   reset_state();
   auto ops = make_ops();
   char *argv[] = {const_cast<char *>("connect")};
 
   REQUIRE(modem_net_cmd_connect_core(&ops, 1, argv) == -22);
-  REQUIRE(g_state.capture.lastError == "usage: net connect <apn>");
+  REQUIRE(g_state.capture.lastError == "usage: modem ppp connect <apn>");
   REQUIRE(g_state.lastError == -22);
   REQUIRE(g_state.lastErrorText == "APN required");
 }
 
-TEST_CASE("net connect rejects a busy modem UART", "[modem-net]")
+TEST_CASE("modem ppp connect rejects a busy modem UART", "[modem-net]")
 {
   reset_state();
   g_state.owner = 3;
@@ -212,7 +212,7 @@ TEST_CASE("net connect rejects a busy modem UART", "[modem-net]")
   REQUIRE(g_state.lastError == -16);
 }
 
-TEST_CASE("net connect reports PPP connected after full success path", "[modem-net]")
+TEST_CASE("modem ppp connect reports PPP connected after full success path", "[modem-net]")
 {
   reset_state();
   auto ops = make_ops();
@@ -225,7 +225,7 @@ TEST_CASE("net connect reports PPP connected after full success path", "[modem-n
   REQUIRE(g_state.hangupCalls == 0);
 }
 
-TEST_CASE("net connect tears down on post-open failure", "[modem-net]")
+TEST_CASE("modem ppp connect tears down on post-open failure", "[modem-net]")
 {
   reset_state();
   g_state.waitRet = -110;
@@ -240,7 +240,7 @@ TEST_CASE("net connect tears down on post-open failure", "[modem-net]")
   REQUIRE(g_state.lastErrorText == "connect failed");
 }
 
-TEST_CASE("net disconnect is idempotent when already down", "[modem-net]")
+TEST_CASE("modem ppp disconnect is idempotent when already down", "[modem-net]")
 {
   reset_state();
   auto ops = make_ops();
@@ -250,7 +250,7 @@ TEST_CASE("net disconnect is idempotent when already down", "[modem-net]")
   REQUIRE(g_state.closeCalls == 0);
 }
 
-TEST_CASE("net disconnect closes an active PPP session", "[modem-net]")
+TEST_CASE("modem ppp disconnect closes an active PPP session", "[modem-net]")
 {
   reset_state();
   g_state.sessionOpen = true;
@@ -263,7 +263,7 @@ TEST_CASE("net disconnect closes an active PPP session", "[modem-net]")
   REQUIRE(g_state.capture.lastPrint == "PPP disconnected");
 }
 
-TEST_CASE("net status prints current PPP details", "[modem-net]")
+TEST_CASE("modem ppp status prints current PPP details", "[modem-net]")
 {
   reset_state();
   g_state.modemPowered = true;

@@ -41,14 +41,14 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 	ops->clear_error();
 
 	if (argc < 2U) {
-		ops->error(ops->ctx, "usage: net connect <apn>");
+		ops->error(ops->ctx, "usage: modem ppp connect <apn>");
 		ops->set_error(-EINVAL, "APN required");
 		return -EINVAL;
 	}
 
 	apn = argv[1];
 	if ((apn == NULL) || (apn[0] == '\0')) {
-		ops->error(ops->ctx, "usage: net connect <apn>");
+		ops->error(ops->ctx, "usage: modem ppp connect <apn>");
 		ops->set_error(-EINVAL, "APN required");
 		return -EINVAL;
 	}
