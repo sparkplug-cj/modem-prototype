@@ -124,6 +124,23 @@ static int modem_net_send_at(const char *command, char *response, size_t respons
 	return modem_at_send(command, response, responseSize);
 }
 
+static void modem_net_log_at_diagnostics(const struct shell *sh, const char *label, int ret,
+					      const char *response)
+{
+	struct modem_at_diagnostics diagnostics = {0};
+
+	modem_at_get_last_diagnostics(&diagnostics);
+	shell_error(sh,
+		    "%s failed: %d (saw_bytes=%s bytes=%u exit=%s last_uart_ret=%d response='%s')",
+		    label,
+		    ret,
+		    diagnostics.sawAnyByte ? "yes" : "no",
+		    (unsigned int)diagnostics.bytesReceived,
+		    modem_at_exit_reason_str(diagnostics.exitReason),
+		    diagnostics.lastUartRet,
+		    (response != NULL) ? response : "");
+}
+
 static int modem_net_sync_and_disable_sleep(const struct shell *sh)
 {
 	char response[MODEM_NET_AT_RESPONSE_SIZE];
@@ -133,18 +150,31 @@ static int modem_net_sync_and_disable_sleep(const struct shell *sh)
 	k_msleep(MODEM_NET_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_NET_SYNC_RETRIES; ++attempt) {
+		response[0] = '\0';
+		shell_print(sh, "AT sync attempt %d/%d...", attempt + 1, MODEM_NET_SYNC_RETRIES);
 		ret = modem_net_send_at("AT", response, sizeof(response));
 		if (ret == 0) {
+			shell_print(sh, "AT sync OK: %s", response);
 			break;
 		}
+
+		modem_net_log_at_diagnostics(sh, "AT sync", ret, response);
 	}
 
 	if (ret != 0) {
 		return ret;
 	}
 
+	response[0] = '\0';
 	shell_print(sh, "Disabling sleep...");
-	return modem_net_send_at("AT+KSLEEP=2", response, sizeof(response));
+	ret = modem_net_send_at("AT+KSLEEP=2", response, sizeof(response));
+	if (ret != 0) {
+		modem_net_log_at_diagnostics(sh, "AT+KSLEEP=2", ret, response);
+		return ret;
+	}
+
+	shell_print(sh, "Sleep disabled: %s", response);
+	return 0;
 }
 
 static int modem_net_ensure_powered(void *ctx)
