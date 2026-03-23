@@ -1,6 +1,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -13,6 +14,8 @@ namespace {
 struct Capture {
   std::string lastPrint;
   std::string lastError;
+  std::vector<std::string> prints;
+  std::vector<std::string> errors;
 };
 
 struct State {
@@ -151,6 +154,7 @@ void fake_print(void *ctx, const char *fmt, ...)
   vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
   capture->lastPrint = buffer;
+  capture->prints.emplace_back(buffer);
 }
 
 void fake_error(void *ctx, const char *fmt, ...)
@@ -162,6 +166,7 @@ void fake_error(void *ctx, const char *fmt, ...)
   vsnprintf(buffer, sizeof(buffer), fmt, args);
   va_end(args);
   capture->lastError = buffer;
+  capture->errors.emplace_back(buffer);
 }
 
 modem_net_ops make_ops()
@@ -221,6 +226,15 @@ TEST_CASE("modem ppp connect reports PPP connected after full success path", "[m
   REQUIRE(modem_net_cmd_connect_core(&ops, 2, argv) == 0);
   REQUIRE(g_state.apn == "internet");
   REQUIRE(g_state.capture.lastPrint == "PPP connected");
+  REQUIRE(g_state.capture.prints == std::vector<std::string>{
+      "PPP connect: ensure modem powered",
+      "PPP connect: configure PDP/APN context",
+      "PPP connect: open UART session",
+      "PPP connect: dial PPP",
+      "PPP connect: attach PPP",
+      "PPP connect: wait for network",
+      "PPP connected",
+  });
   REQUIRE(g_state.closeCalls == 0);
   REQUIRE(g_state.hangupCalls == 0);
 }
@@ -235,7 +249,15 @@ TEST_CASE("modem ppp connect tears down on post-open failure", "[modem-net]")
   REQUIRE(modem_net_cmd_connect_core(&ops, 2, argv) == -110);
   REQUIRE(g_state.hangupCalls == 1);
   REQUIRE(g_state.closeCalls == 1);
-  REQUIRE(g_state.capture.lastError == "connect failed: -110");
+  REQUIRE(g_state.capture.prints == std::vector<std::string>{
+      "PPP connect: ensure modem powered",
+      "PPP connect: configure PDP/APN context",
+      "PPP connect: open UART session",
+      "PPP connect: dial PPP",
+      "PPP connect: attach PPP",
+      "PPP connect: wait for network",
+  });
+  REQUIRE(g_state.capture.lastError == "connect failed at wait_for_network: -110");
   REQUIRE(g_state.lastError == -110);
   REQUIRE(g_state.lastErrorText == "connect failed");
 }

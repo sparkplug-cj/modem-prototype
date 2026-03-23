@@ -26,6 +26,7 @@ static const char *modem_net_owner_name(int owner)
 int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, char **argv)
 {
 	const char *apn;
+	const char *failedStage = NULL;
 	int ret;
 
 	if ((ops == NULL) || (ops->owner_get == NULL) || (ops->ensure_powered == NULL) ||
@@ -61,33 +62,45 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 
 	ops->set_apn(apn);
 
+	ops->print(ops->ctx, "PPP connect: ensure modem powered");
 	ret = ops->ensure_powered(ops->ctx);
 	if (ret != 0) {
+		failedStage = "ensure_powered";
 		goto out_fail;
 	}
 
+	ops->print(ops->ctx, "PPP connect: configure PDP/APN context");
 	ret = ops->configure_context(ops->ctx, apn);
 	if (ret != 0) {
+		failedStage = "configure_context";
 		goto out_fail;
 	}
 
+	ops->print(ops->ctx, "PPP connect: open UART session");
 	ret = ops->open_uart_session();
 	if (ret != 0) {
+		failedStage = "open_uart_session";
 		goto out_fail;
 	}
 
+	ops->print(ops->ctx, "PPP connect: dial PPP");
 	ret = ops->dial_ppp(ops->ctx);
 	if (ret != 0) {
+		failedStage = "dial_ppp";
 		goto out_close;
 	}
 
+	ops->print(ops->ctx, "PPP connect: attach PPP");
 	ret = ops->attach_ppp();
 	if (ret != 0) {
+		failedStage = "attach_ppp";
 		goto out_close;
 	}
 
+	ops->print(ops->ctx, "PPP connect: wait for network");
 	ret = ops->wait_for_network(ops->ctx);
 	if (ret != 0) {
+		failedStage = "wait_for_network";
 		goto out_close;
 	}
 
@@ -99,7 +112,11 @@ out_close:
 	ops->close_uart_session();
 out_fail:
 	ops->set_error(ret, "connect failed");
-	ops->error(ops->ctx, "connect failed: %d", ret);
+	if (failedStage != NULL) {
+		ops->error(ops->ctx, "connect failed at %s: %d", failedStage, ret);
+	} else {
+		ops->error(ops->ctx, "connect failed: %d", ret);
+	}
 	return ret;
 }
 
