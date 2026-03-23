@@ -32,7 +32,7 @@
 #define MODEM_NET_PPP_FRAME_BUFFER_SIZE 128
 #define MODEM_NET_PIPE_WAIT K_SECONDS(2)
 #define MODEM_NET_DIAL_WAIT K_SECONDS(20)
-#define MODEM_NET_CONNECT_WAIT K_SECONDS(60)
+#define MODEM_NET_CONNECT_WAIT K_SECONDS(15)
 #define MODEM_NET_ESCAPE_GUARD_MS 1200
 #define MODEM_NET_DEFAULT_CONTEXT_ID 1
 #define MODEM_NET_AT_IRQ_RX_RING_SIZE 512
@@ -476,15 +476,16 @@ static int modem_net_escape_and_hangup(void)
 {
 	static const uint8_t escapeSequence[] = "+++";
 	static const uint8_t hangupCommand[] = "ATH\r";
-	uint8_t rxBuffer[64];
+
+	if ((modemNetPipe == NULL) || !modemNetSessionOpen) {
+		return 0;
+	}
 
 	k_msleep(MODEM_NET_ESCAPE_GUARD_MS);
 	(void)modem_pipe_transmit(modemNetPipe, escapeSequence, sizeof(escapeSequence) - 1U);
 	k_msleep(MODEM_NET_ESCAPE_GUARD_MS);
-	(void)modem_pipe_receive(modemNetPipe, rxBuffer, sizeof(rxBuffer));
 	(void)modem_pipe_transmit(modemNetPipe, hangupCommand, sizeof(hangupCommand) - 1U);
 	k_msleep(500);
-	(void)modem_pipe_receive(modemNetPipe, rxBuffer, sizeof(rxBuffer));
 	return 0;
 }
 

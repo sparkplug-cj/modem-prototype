@@ -108,6 +108,9 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 	return 0;
 
 out_close:
+	if ((failedStage != NULL) && (strcmp(failedStage, "wait_for_network") == 0)) {
+		ops->print(ops->ctx, "PPP network wait timed out, tearing down session...");
+	}
 	(void)ops->escape_and_hangup();
 	ops->close_uart_session();
 out_fail:

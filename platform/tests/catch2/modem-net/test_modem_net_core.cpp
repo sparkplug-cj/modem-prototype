@@ -256,6 +256,7 @@ TEST_CASE("modem ppp connect tears down on post-open failure", "[modem-net]")
       "PPP connect: dial PPP",
       "PPP connect: attach PPP",
       "PPP connect: wait for network",
+      "PPP network wait timed out, tearing down session...",
   });
   REQUIRE(g_state.capture.lastError == "connect failed at wait_for_network: -110");
   REQUIRE(g_state.lastError == -110);
