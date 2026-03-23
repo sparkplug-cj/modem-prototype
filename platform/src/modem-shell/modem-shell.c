@@ -544,7 +544,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD_ARG(passthrough, NULL,
 		      "Raw UART passthrough to modem. Use --debug for RX trace mode; Ctrl-X then Ctrl-Q exits.",
 		      cmd_modem_passthrough, 1, 1),
-	SHELL_CMD_ARG(ppp, &sub_modem_ppp, "Modem PPP control", cmd_modem_ppp_status, 1, 0),
+	SHELL_CMD_ARG(ppp, &sub_modem_ppp, "Modem PPP control", NULL, 1, 0),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );
 
