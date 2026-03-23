@@ -459,7 +459,7 @@ static struct modem_net_ops modem_net_make_ops(const struct shell *sh)
 	};
 }
 
-static int cmd_modem_ppp_connect(const struct shell *sh, size_t argc, char **argv)
+int cmd_modem_ppp_connect(const struct shell *sh, size_t argc, char **argv)
 {
 	int ret;
 	struct modem_net_ops ops;
@@ -472,7 +472,7 @@ static int cmd_modem_ppp_connect(const struct shell *sh, size_t argc, char **arg
 	return ret;
 }
 
-static int cmd_modem_ppp_disconnect(const struct shell *sh, size_t argc, char **argv)
+int cmd_modem_ppp_disconnect(const struct shell *sh, size_t argc, char **argv)
 {
 	int ret;
 	struct modem_net_ops ops;
@@ -485,7 +485,7 @@ static int cmd_modem_ppp_disconnect(const struct shell *sh, size_t argc, char **
 	return ret;
 }
 
-static int cmd_modem_ppp_status(const struct shell *sh, size_t argc, char **argv)
+int cmd_modem_ppp_status(const struct shell *sh, size_t argc, char **argv)
 {
 	int ret;
 	struct modem_net_ops ops;
@@ -496,13 +496,3 @@ static int cmd_modem_ppp_status(const struct shell *sh, size_t argc, char **argv
 	return ret;
 }
 
-SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem_ppp,
-	SHELL_CMD_ARG(connect, NULL, "Bring up modem PPP link: ppp connect <apn>", cmd_modem_ppp_connect, 1, 1),
-	SHELL_CMD_ARG(disconnect, NULL, "Tear down modem PPP link", cmd_modem_ppp_disconnect, 1, 0),
-	SHELL_CMD_ARG(status, NULL, "Show modem PPP status", cmd_modem_ppp_status, 1, 0),
-	SHELL_SUBCMD_SET_END
-);
-
-SHELL_SUBCMD_ADD((modem), ppp, &sub_modem_ppp,
-		 "Modem PPP control.",
-		 cmd_modem_ppp_status, 1, 0);
