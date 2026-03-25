@@ -32,7 +32,7 @@
 #define MODEM_NET_PPP_FRAME_BUFFER_SIZE 128
 #define MODEM_NET_PIPE_WAIT K_SECONDS(2)
 #define MODEM_NET_DIAL_WAIT K_SECONDS(20)
-#define MODEM_NET_CONNECT_WAIT K_SECONDS(15)
+#define MODEM_NET_CONNECT_WAIT K_SECONDS(60)
 #define MODEM_NET_ESCAPE_GUARD_MS 1200
 #define MODEM_NET_DEFAULT_CONTEXT_ID 1
 #define MODEM_NET_AT_IRQ_RX_RING_SIZE 512
@@ -49,7 +49,9 @@ static struct ring_buf modemNetAtRxRing;
 static bool modemNetAtRxIrqConfigured;
 static struct modem_pipe *modemNetPipe;
 static struct net_if *modemNetIface;
-static struct net_mgmt_event_callback modemNetMgmtCb;
+static struct net_mgmt_event_callback modemNetMgmtCb_l2; // PPP 
+static struct net_mgmt_event_callback modemNetMgmtCb_l3; // IP 
+static struct net_mgmt_event_callback modemNetMgmtCb_l4; // socket
 static struct k_sem modemNetConnectedSem;
 static struct k_sem modemNetDnsSem;
 static struct k_mutex modemNetLock;
@@ -156,6 +158,7 @@ static void modem_net_event_handler(struct net_mgmt_event_callback *cb,
 				      struct net_if *iface)
 {
 	ARG_UNUSED(cb);
+	printk("Network Event Fired: 0x%08X\n", (uint32_t)mgmtEvent);
 
 	if ((modemNetIface != NULL) && (iface != modemNetIface)) {
 		return;
@@ -182,24 +185,37 @@ static void modem_net_event_handler(struct net_mgmt_event_callback *cb,
 
 static void modem_net_init_once(void)
 {
-	if (modemNetInitialized) {
-		return;
-	}
+    if (modemNetInitialized) {
+        return;
+    }
 
-	k_sem_init(&modemNetConnectedSem, 0, 1);
-	k_sem_init(&modemNetDnsSem, 0, 1);
-	k_mutex_init(&modemNetLock);
-	net_mgmt_init_event_callback(&modemNetMgmtCb,
-				     modem_net_event_handler,
-				     NET_EVENT_L4_CONNECTED |
-				     NET_EVENT_L4_DISCONNECTED |
-				     NET_EVENT_IPV4_ADDR_ADD |
-				     NET_EVENT_DNS_SERVER_ADD |
-				     NET_EVENT_PPP_PHASE_RUNNING |
-				     NET_EVENT_PPP_PHASE_DEAD |
-				     NET_EVENT_PPP_CARRIER_OFF);
-	net_mgmt_add_event_callback(&modemNetMgmtCb);
-	modemNetInitialized = true;
+    k_sem_init(&modemNetConnectedSem, 0, 1);
+    k_sem_init(&modemNetDnsSem, 0, 1);
+    k_mutex_init(&modemNetLock);
+
+    // 1. L2 (PPP) 
+    net_mgmt_init_event_callback(&modemNetMgmtCb_l2,
+                                 modem_net_event_handler,
+                                 NET_EVENT_PPP_PHASE_RUNNING |
+                                 NET_EVENT_PPP_PHASE_DEAD |
+                                 NET_EVENT_PPP_CARRIER_OFF);
+    net_mgmt_add_event_callback(&modemNetMgmtCb_l2);
+
+    // 2. L3 (IPv4 / DNS)
+    net_mgmt_init_event_callback(&modemNetMgmtCb_l3,
+                                 modem_net_event_handler,
+                                 NET_EVENT_IPV4_ADDR_ADD |
+                                 NET_EVENT_DNS_SERVER_ADD);
+    net_mgmt_add_event_callback(&modemNetMgmtCb_l3);
+
+    // 3. L4 (Socket)
+    net_mgmt_init_event_callback(&modemNetMgmtCb_l4,
+                                 modem_net_event_handler,
+                                 NET_EVENT_L4_CONNECTED |
+                                 NET_EVENT_L4_DISCONNECTED);
+    net_mgmt_add_event_callback(&modemNetMgmtCb_l4);
+
+    modemNetInitialized = true;
 }
 
 static int modem_net_send_at(const char *command, char *response, size_t responseSize)
@@ -264,6 +280,16 @@ static int modem_net_sync_and_disable_sleep(const struct shell *sh)
 	}
 
 	shell_print(sh, "Sleep disabled: %s", response);
+
+    // disable PSM(Power Saving Mode) 
+	shell_print(sh, "Disabling PSM (CPSMS=0)...");
+	ret = modem_net_send_at("AT+CPSMS=0", response, sizeof(response));
+	shell_print(sh, ":CPSMS: (%s)", (ret == 0) ? response : "FAIL");
+
+	// disable eDRX
+	shell_print(sh, "Disabling eDRX (CEDRXS=0)...");
+	ret = modem_net_send_at("AT+CEDRXS=0", response, sizeof(response));
+	shell_print(sh, ":CEDRXS: (%s)", (ret == 0) ? response : "FAIL");	
 	return 0;
 }
 
@@ -301,24 +327,55 @@ static int modem_net_configure_context(void *ctx, const char *apn)
 		return -EINVAL;
 	}
 
+    shell_print(sh, "Resetting network stack (CFUN=4)...");
+    (void)modem_net_send_at("AT+CFUN=4", response, sizeof(response));	
+    shell_print(sh, ":CFUN=4: (%s)", (ret == 0) ? response : "FAIL");
+
+    shell_print(sh, "Pre-activating network (CFUN=1)...");
+    (void)modem_net_send_at("AT+CFUN=1", response, sizeof(response));
+    shell_print(sh, ":CFUN=1: (%s)", (ret == 0) ? response : "FAIL");
+
+	(void)modem_net_send_at("AT+CMEE=1", response, sizeof(response));
+    shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
+
 	snprintk(command, sizeof(command), "AT+CGDCONT=%d,\"IP\",\"%s\"",
-		 MODEM_NET_DEFAULT_CONTEXT_ID,
-		 apn);
+			MODEM_NET_DEFAULT_CONTEXT_ID, apn);
 	shell_print(sh, "Configuring PDP context (%s)...", apn);
 	ret = modem_net_send_at(command, response, sizeof(response));
 	if (ret != 0) {
 		return ret;
 	}
-
-	ret = modem_net_send_at("AT+CGATT=1", response, sizeof(response));
-	if ((ret != 0) && (ret != -EIO)) {
+	
+	snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",,,\"IPV4\"",
+			MODEM_NET_DEFAULT_CONTEXT_ID, apn);
+	shell_print(sh, "Configuring Connection Profile (Reference Style)...");
+	ret = modem_net_send_at(command, response, sizeof(response));
+	if (ret != 0) {
 		return ret;
 	}
+    ret = modem_net_send_at("AT+WPPP=0", response, sizeof(response));
+    shell_print(sh, ":WPPP=0: (%s)", (ret == 0) ? response : "FAIL");
 
-	ret = modem_net_send_at("AT+CGACT=1,1", response, sizeof(response));
-	if ((ret != 0) && (ret != -EIO)) {
-		return ret;
-	}
+    // Waiting for registration
+    shell_print(sh, "Waiting for network registration (CREG/CEREG)...");
+	int registration_attempts = 10; // max 10secs
+    while (registration_attempts-- > 0) {
+        ret = modem_net_send_at("AT+CEREG?", response, sizeof(response));
+        
+        // check response of  "+CEREG: 0,1" (home) or "+CEREG: 0,5" (roaming)
+        if (ret == 0 && (strstr(response, "0,1") || strstr(response, "0,5"))) {
+            shell_print(sh, "Network registered: %s", response);
+            break;
+        }
+        
+        shell_print(sh, "Still searching... (%d)", registration_attempts);
+        k_msleep(1000);
+        
+        if (registration_attempts == 0) {
+            shell_error(sh, "Failed to register on network within timeout");
+            return -ETIMEDOUT;
+        }
+    }
 
 	return 0;
 }
@@ -396,7 +453,7 @@ static int modem_net_dial_ppp(void *ctx)
 	char response[MODEM_NET_AT_RESPONSE_SIZE] = {0};
 	int ret;
 
-	shell_print(sh, "Dialing PPP...");
+	shell_print(sh, "Dialing PPP...(%s)\n", dialCommand );
 	ret = modem_pipe_transmit(modemNetPipe,
 				 (const uint8_t *)dialCommand,
 				 sizeof(dialCommand) - 1U);
