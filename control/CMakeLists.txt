@@ -26,6 +26,7 @@ target_sources(app PRIVATE
 target_link_libraries(app PRIVATE platform_src_modem_board_obj)
 target_link_libraries(app PRIVATE platform_src_modem_at_obj)
 target_link_libraries(app PRIVATE platform_src_modem_shell_obj)
+target_link_libraries(app PRIVATE platform_src_modem_net_obj)
 
 mark_zephyr_system_includes(app)
 target_link_libraries(app PRIVATE zephyr_interface)

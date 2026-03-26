@@ -1,4 +1,6 @@
 #include "modem-shell-core.h"
+#include "modem-shell-uart.h"
+#include "modem-net-shell.h"
 
 #include "modem-at.h"
 #include "modem-board.h"
@@ -67,13 +69,7 @@ static struct ring_buf modemUartRxRing;
 static bool modemUartRxIrqConfigured;
 static const struct shell *modemAtDebugShell;
 
-enum modem_uart_rx_owner {
-	MODEM_UART_RX_OWNER_NONE = 0,
-	MODEM_UART_RX_OWNER_AT,
-	MODEM_UART_RX_OWNER_PASSTHROUGH,
-};
-
-static enum modem_uart_rx_owner modemUartRxOwner;
+static enum modem_uart_owner modemUartRxOwner;
 
 static void modem_uart_rx_irq_cb(const struct device *dev, void *user_data);
 
@@ -94,24 +90,48 @@ static int modem_uart_rx_prepare(void)
 	return 0;
 }
 
-static int modem_uart_rx_acquire(enum modem_uart_rx_owner owner)
+int modem_uart_owner_acquire(enum modem_uart_owner owner)
+{
+	if (modemUartRxOwner != MODEM_UART_OWNER_NONE) {
+		return -EBUSY;
+	}
+
+	modemUartRxOwner = owner;
+	return 0;
+}
+
+void modem_uart_owner_release(enum modem_uart_owner owner)
+{
+	if (modemUartRxOwner != owner) {
+		return;
+	}
+
+	modemUartRxOwner = MODEM_UART_OWNER_NONE;
+}
+
+enum modem_uart_owner modem_uart_owner_get(void)
+{
+	return modemUartRxOwner;
+}
+
+static int modem_uart_rx_acquire(enum modem_uart_owner owner)
 {
 	int ret = modem_uart_rx_prepare();
 	if (ret != 0) {
 		return ret;
 	}
 
-	if (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE) {
-		return -EBUSY;
+	ret = modem_uart_owner_acquire(owner);
+	if (ret != 0) {
+		return ret;
 	}
 
-	modemUartRxOwner = owner;
 	ring_buf_reset(&modemUartRxRing);
 	uart_irq_rx_enable(modemUart);
 	return 0;
 }
 
-static void modem_uart_rx_release(enum modem_uart_rx_owner owner)
+static void modem_uart_rx_release(enum modem_uart_owner owner)
 {
 	if (modemUartRxOwner != owner) {
 		return;
@@ -119,7 +139,7 @@ static void modem_uart_rx_release(enum modem_uart_rx_owner owner)
 
 	uart_irq_rx_disable(modemUart);
 	ring_buf_reset(&modemUartRxRing);
-	modemUartRxOwner = MODEM_UART_RX_OWNER_NONE;
+	modem_uart_owner_release(owner);
 }
 
 static uint32_t modem_uart_rx_read(void *ctx, uint8_t *buffer, size_t bufferSize)
@@ -136,7 +156,7 @@ static int modem_uart_irq_at_session_open(void *ctx, char *response, size_t resp
 		return -EINVAL;
 	}
 
-	int ret = modem_uart_rx_acquire(MODEM_UART_RX_OWNER_AT);
+	int ret = modem_uart_rx_acquire(MODEM_UART_OWNER_AT);
 	if (ret != 0) {
 		return ret;
 	}
@@ -148,7 +168,7 @@ static int modem_uart_irq_at_session_open(void *ctx, char *response, size_t resp
 static void modem_uart_irq_at_session_close(void *ctx)
 {
 	ARG_UNUSED(ctx);
-	modem_uart_rx_release(MODEM_UART_RX_OWNER_AT);
+	modem_uart_rx_release(MODEM_UART_OWNER_AT);
 }
 
 static void modem_at_debug_log_adapter(void *ctx, const char *fmt, ...)
@@ -236,7 +256,7 @@ static void modem_passthrough_stop(void)
 	}
 
 	passthroughActive = false;
-	modem_uart_rx_release(MODEM_UART_RX_OWNER_PASSTHROUGH);
+	modem_uart_rx_release(MODEM_UART_OWNER_PASSTHROUGH);
 	shell_set_bypass(passthroughShell, NULL);
 	shell_print(passthroughShell, "\r\n[modem passthrough disabled]");
 	passthroughShell = NULL;
@@ -412,7 +432,7 @@ static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
 {
 	if ((argc >= 2U) &&
 	    ((strcmp(argv[1], "on") == 0) || (strcmp(argv[1], "cycle") == 0)) &&
-	    (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE)) {
+	    (modemUartRxOwner != MODEM_UART_OWNER_NONE)) {
 		shell_error(sh, "modem UART RX is busy");
 		return -EBUSY;
 	}
@@ -424,7 +444,7 @@ static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 {
-	if (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE) {
+	if (modemUartRxOwner != MODEM_UART_OWNER_NONE) {
 		shell_error(sh, "modem UART RX is busy");
 		return -EBUSY;
 	}
@@ -473,7 +493,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		return -EBUSY;
 	}
 
-	if (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE) {
+	if (modemUartRxOwner != MODEM_UART_OWNER_NONE) {
 		shell_error(sh, "modem UART RX is busy");
 		return -EBUSY;
 	}
@@ -492,7 +512,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		passthroughThreadStarted = true;
 	}
 
-	ret = modem_uart_rx_acquire(MODEM_UART_RX_OWNER_PASSTHROUGH);
+	ret = modem_uart_rx_acquire(MODEM_UART_OWNER_PASSTHROUGH);
 	if (ret != 0) {
 		shell_error(sh, "failed to acquire modem UART IRQ RX: %d", ret);
 		return ret;
@@ -509,6 +529,13 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 	return 0;
 }
 
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem_ppp,
+	SHELL_CMD_ARG(connect, NULL, "Bring up modem PPP link: ppp connect <apn> <id> <password>", cmd_modem_ppp_connect, 4, 0),
+	SHELL_CMD_ARG(disconnect, NULL, "Tear down modem PPP link", cmd_modem_ppp_disconnect, 1, 0),
+	SHELL_CMD_ARG(status, NULL, "Show modem PPP status", cmd_modem_ppp_status, 1, 0),
+	SHELL_SUBCMD_SET_END
+);
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
@@ -517,6 +544,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD_ARG(passthrough, NULL,
 		      "Raw UART passthrough to modem. Use --debug for RX trace mode; Ctrl-X then Ctrl-Q exits.",
 		      cmd_modem_passthrough, 1, 1),
+	SHELL_CMD_ARG(ppp, &sub_modem_ppp, "Modem PPP control", NULL, 0, 0),
 	SHELL_SUBCMD_SET_END /* Array terminator */
 );
 
