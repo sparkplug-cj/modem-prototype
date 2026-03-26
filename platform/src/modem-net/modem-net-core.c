@@ -25,7 +25,6 @@ static const char *modem_net_owner_name(int owner)
 
 int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, char **argv)
 {
-	const char *apn;
 	const char *failedStage = NULL;
 	int ret;
 
@@ -41,14 +40,20 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 
 	ops->clear_error();
 
-	if (argc < 2U) {
-		ops->error(ops->ctx, "usage: modem ppp connect <apn>");
-		ops->set_error(-EINVAL, "APN required");
+
+	if (argc < 4U) {
+		ops->error(ops->ctx, "usage: modem ppp connect <apn> <id> <password>");
+		ops->set_error(-EINVAL, "APN/ID/PASS required");
 		return -EINVAL;
 	}
 
-	apn = argv[1];
-	if ((apn == NULL) || (apn[0] == '\0')) {
+	struct modem_net_profile prof = {
+		.apn = argv[1],
+		.id = argv[2],
+		.password = argv[3],
+	};
+	
+	if (prof.apn[0] == '\0') {
 		ops->error(ops->ctx, "usage: modem ppp connect <apn>");
 		ops->set_error(-EINVAL, "APN required");
 		return -EINVAL;
@@ -60,7 +65,7 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 		return -EBUSY;
 	}
 
-	ops->set_apn(apn);
+	ops->set_apn(prof.apn);
 
 	ops->print(ops->ctx, "PPP connect: ensure modem powered");
 	ret = ops->ensure_powered(ops->ctx);
@@ -70,7 +75,7 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 	}
 
 	ops->print(ops->ctx, "PPP connect: configure PDP/APN context");
-	ret = ops->configure_context(ops->ctx, apn);
+	ret = ops->configure_context(ops->ctx, &prof);
 	if (ret != 0) {
 		failedStage = "configure_context";
 		goto out_fail;

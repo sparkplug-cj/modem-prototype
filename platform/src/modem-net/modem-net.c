@@ -315,14 +315,14 @@ static int modem_net_ensure_powered(void *ctx)
 	return modem_net_sync_and_disable_sleep(sh);
 }
 
-static int modem_net_configure_context(void *ctx, const char *apn)
+static int modem_net_configure_context(void *ctx, const struct modem_net_profile *prof)
 {
 	const struct shell *sh = ctx;
 	char command[96];
 	char response[MODEM_NET_AT_RESPONSE_SIZE];
 	int ret;
 
-	if ((apn == NULL) || (apn[0] == '\0')) {
+	if ((prof == NULL) || (prof->apn == NULL) || (prof->apn[0] == '\0')) {
 		shell_error(sh, "APN is not configured");
 		return -EINVAL;
 	}
@@ -340,16 +340,16 @@ static int modem_net_configure_context(void *ctx, const char *apn)
 	shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
 
 	snprintk(command, sizeof(command), "AT+CGDCONT=%d,\"IP\",\"%s\"",
-			MODEM_NET_DEFAULT_CONTEXT_ID, apn);
-	shell_print(sh, "Configuring PDP context (%s)...", apn);
+			MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn);
+	shell_print(sh, "Configuring PDP context (%s)...", prof->apn);
 	ret = modem_net_send_at(command, response, sizeof(response));
 	if (ret != 0) {
 		return ret;
 	}
 
 	// ID/Password = a/b
-    snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",\"a\",\"b\",\"IPV4\"",
-             MODEM_NET_DEFAULT_CONTEXT_ID, apn);
+    snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",\"%s\",\"%s\",\"IPV4\"",
+             MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn, prof->id, prof->password);
     
     shell_print(sh, "Configuring Connection Profile (Reference Style)...");
     ret = modem_net_send_at(command, response, sizeof(response));

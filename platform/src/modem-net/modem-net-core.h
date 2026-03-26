@@ -19,10 +19,17 @@ struct modem_net_status {
 	const char *ipv4;
 };
 
+
+struct modem_net_profile {
+    const char *apn;
+    const char *id;
+    const char *password;
+};
+
 struct modem_net_ops {
 	int (*owner_get)(void);
 	int (*ensure_powered)(void *ctx);
-	int (*configure_context)(void *ctx, const char *apn);
+	int (*configure_context)(void *ctx, const struct modem_net_profile *prof);
 	int (*open_uart_session)(void);
 	int (*dial_ppp)(void *ctx);
 	int (*attach_ppp)(void);
