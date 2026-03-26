@@ -33,6 +33,8 @@ struct State {
   int lastError = 0;
   std::string lastErrorText;
   std::string apn;
+  std::string id;
+  std::string password;
   std::string ipv4;
   int closeCalls = 0;
   int hangupCalls = 0;
@@ -56,10 +58,12 @@ int fake_ensure_powered(void *)
   return g_state.ensurePoweredRet;
 }
 
-int fake_configure_context(void *, const char *apn)
+int fake_configure_context(void *, const modem_net_profile *prof)
 {
-  if (g_state.configureRet == 0) {
-    g_state.apn = apn != nullptr ? apn : "";
+  if (g_state.configureRet == 0 && prof != nullptr) {
+    g_state.apn = prof->apn != nullptr ? prof->apn : "";
+    g_state.id = prof->id != nullptr ? prof->id : "";
+    g_state.password = prof->password != nullptr ? prof->password : "";
   }
   return g_state.configureRet;
 }
@@ -193,16 +197,16 @@ modem_net_ops make_ops()
 
 } // namespace
 
-TEST_CASE("modem ppp connect requires an APN", "[modem-net]")
+TEST_CASE("modem ppp connect requires APN, id, and password", "[modem-net]")
 {
   reset_state();
   auto ops = make_ops();
   char *argv[] = {const_cast<char *>("connect")};
 
   REQUIRE(modem_net_cmd_connect_core(&ops, 1, argv) == -22);
-  REQUIRE(g_state.capture.lastError == "usage: modem ppp connect <apn>");
+  REQUIRE(g_state.capture.lastError == "usage: modem ppp connect <apn> <id> <password>");
   REQUIRE(g_state.lastError == -22);
-  REQUIRE(g_state.lastErrorText == "APN required");
+  REQUIRE(g_state.lastErrorText == "APN/ID/PASS required");
 }
 
 TEST_CASE("modem ppp connect rejects a busy modem UART", "[modem-net]")
@@ -210,9 +214,9 @@ TEST_CASE("modem ppp connect rejects a busy modem UART", "[modem-net]")
   reset_state();
   g_state.owner = 3;
   auto ops = make_ops();
-  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet")};
+  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet"), const_cast<char *>("user"), const_cast<char *>("pass")};
 
-  REQUIRE(modem_net_cmd_connect_core(&ops, 2, argv) == -16);
+  REQUIRE(modem_net_cmd_connect_core(&ops, 4, argv) == -16);
   REQUIRE(g_state.capture.lastError == "modem UART is busy");
   REQUIRE(g_state.lastError == -16);
 }
@@ -221,10 +225,12 @@ TEST_CASE("modem ppp connect reports PPP connected after full success path", "[m
 {
   reset_state();
   auto ops = make_ops();
-  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet")};
+  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet"), const_cast<char *>("user"), const_cast<char *>("pass")};
 
-  REQUIRE(modem_net_cmd_connect_core(&ops, 2, argv) == 0);
+  REQUIRE(modem_net_cmd_connect_core(&ops, 4, argv) == 0);
   REQUIRE(g_state.apn == "internet");
+  REQUIRE(g_state.id == "user");
+  REQUIRE(g_state.password == "pass");
   REQUIRE(g_state.capture.lastPrint == "PPP connected");
   REQUIRE(g_state.capture.prints == std::vector<std::string>{
       "PPP connect: ensure modem powered",
@@ -244,9 +250,9 @@ TEST_CASE("modem ppp connect tears down on post-open failure", "[modem-net]")
   reset_state();
   g_state.waitRet = -110;
   auto ops = make_ops();
-  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet")};
+  char *argv[] = {const_cast<char *>("connect"), const_cast<char *>("internet"), const_cast<char *>("user"), const_cast<char *>("pass")};
 
-  REQUIRE(modem_net_cmd_connect_core(&ops, 2, argv) == -110);
+  REQUIRE(modem_net_cmd_connect_core(&ops, 4, argv) == -110);
   REQUIRE(g_state.hangupCalls == 1);
   REQUIRE(g_state.closeCalls == 1);
   REQUIRE(g_state.capture.prints == std::vector<std::string>{
