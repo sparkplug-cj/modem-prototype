@@ -345,15 +345,18 @@ static int modem_net_configure_context(void *ctx, const char *apn)
 	if (ret != 0) {
 		return ret;
 	}
+
+	// ID/Password = a/b
+    snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",\"a\",\"b\",\"IPV4\"",
+             MODEM_NET_DEFAULT_CONTEXT_ID, apn);
+    
+    shell_print(sh, "Configuring Connection Profile (Reference Style)...");
+    ret = modem_net_send_at(command, response, sizeof(response));
+    if (ret != 0) {
+        return ret;
+    }
 	
-	snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",,,\"IPV4\"",
-			MODEM_NET_DEFAULT_CONTEXT_ID, apn);
-	shell_print(sh, "Configuring Connection Profile (Reference Style)...");
-	ret = modem_net_send_at(command, response, sizeof(response));
-	if (ret != 0) {
-		return ret;
-	}
-    ret = modem_net_send_at("AT+WPPP=0", response, sizeof(response));
+	ret = modem_net_send_at("AT+WPPP=0", response, sizeof(response));
     shell_print(sh, ":WPPP=0: (%s)", (ret == 0) ? response : "FAIL");
 
     // Waiting for registration
