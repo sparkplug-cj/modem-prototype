@@ -328,15 +328,16 @@ static int modem_net_configure_context(void *ctx, const char *apn)
 	}
 
     shell_print(sh, "Resetting network stack (CFUN=4)...");
-    (void)modem_net_send_at("AT+CFUN=4", response, sizeof(response));	
+    ret = modem_net_send_at("AT+CFUN=4", response, sizeof(response));	
     shell_print(sh, ":CFUN=4: (%s)", (ret == 0) ? response : "FAIL");
 
     shell_print(sh, "Pre-activating network (CFUN=1)...");
-    (void)modem_net_send_at("AT+CFUN=1", response, sizeof(response));
+    ret = modem_net_send_at("AT+CFUN=1", response, sizeof(response));
     shell_print(sh, ":CFUN=1: (%s)", (ret == 0) ? response : "FAIL");
 
-	(void)modem_net_send_at("AT+CMEE=1", response, sizeof(response));
-    shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
+	shell_print(sh, "Enabling verbose modem error reporting (CMEE=1)...");
+	ret = modem_net_send_at("AT+CMEE=1", response, sizeof(response));
+	shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
 
 	snprintk(command, sizeof(command), "AT+CGDCONT=%d,\"IP\",\"%s\"",
 			MODEM_NET_DEFAULT_CONTEXT_ID, apn);
