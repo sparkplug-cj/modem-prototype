@@ -19,49 +19,71 @@ static struct net_mgmt_event_callback net_cb_l4;
 static bool tcp_test_done = false;
 static bool ppp_test_ready = false;
 
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+
 static void test_tcp_socket(void)
 {
     int sock;
-    struct sockaddr_in addr;
     char rx_buf[256];
     int ret;
 
     LOG_INF("Starting TCP socket test...");
 
-    // create socket
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (sock < 0) {
-        LOG_ERR("socket() failed");
+    struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_socktype = SOCK_STREAM,
+    };
+
+    struct addrinfo *res;
+
+    /* DNS retry loop */
+    for (int i = 0; i < 5; i++) {
+        ret = getaddrinfo("www.fpinfosmart.eu", "80", &hints, &res);
+        if (ret == 0) {
+            /* Success */
+            break;
+        }
+
+        LOG_WRN("DNS retry %d failed: %d", i + 1, ret);
+        k_sleep(K_MSEC(500));
+    }
+
+    /* If still failed after all retries → return */
+    if (ret != 0) {
+        LOG_ERR("DNS lookup failed after retries, ret=%d", ret);
         return;
     }
 
-    /* server address */
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(80);
-    net_addr_pton(AF_INET, "93.184.216.34", &addr.sin_addr);
+    sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sock < 0) {
+        LOG_ERR("socket() failed");
+        freeaddrinfo(res);
+        return;
+    }
 
-    /* connect */
-    ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
+    ret = connect(sock, res->ai_addr, res->ai_addrlen);
     if (ret < 0) {
         LOG_ERR("connect() failed");
         close(sock);
+        freeaddrinfo(res);
         return;
     }
 
+    freeaddrinfo(res);
+
     LOG_INF("TCP connected");
 
-    /* HTTP request - send */
     const char *http_req =
-        "GET / HTTP/1.1\r\n"
-        "Host: example.com\r\n"
+        "GET /ModemWS/GMWS.asmx HTTP/1.1\r\n"
+        "Host: www.fpinfosmart.eu\r\n"
         "Connection: close\r\n"
         "\r\n";
 
     send(sock, http_req, strlen(http_req), 0);
 
-    /* recv loop */
-    while ((ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0)) > 0) 
-    {
+    while ((ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0)) > 0) {
         rx_buf[ret] = '\0';
         LOG_INF("RX:\n%s", rx_buf);
     }
