@@ -27,6 +27,28 @@ static bool ppp_test_ready = false;
 #include <zephyr/net/tls_credentials.h>
 
 #define CONTROL_TLS_SEC_TAG 1
+static const unsigned char ca_cert_pem[] = CONFIG_CONTROL_TLS_CA_CERT_PEM;
+
+static int tls_setup(void)
+{
+    if (strlen(ca_cert_pem) == 0U) {
+        LOG_ERR("CONFIG_CONTROL_TLS_CA_CERT_PEM is empty");
+        return -1;
+    }
+
+    /* Certificate configuration */
+    int ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
+                             TLS_CREDENTIAL_CA_CERTIFICATE,
+                             ca_cert_pem,
+                             strlen(ca_cert_pem) + 1U);
+    if (ret < 0) {
+        LOG_ERR("tls_credential_add failed: %d", ret);
+        return ret;
+    }
+    LOG_INF("TLS CA certificate registered (sec_tag=%d)", CONTROL_TLS_SEC_TAG);
+    return 0;
+}
+
 
 
 static void test_tcp_socket(void)
@@ -40,9 +62,19 @@ static void test_tcp_socket(void)
     const char *request_body = "Hello word";
     size_t request_body_len = strlen(request_body);
     int ret;
+    static bool tls_credential_added = false;
 
     LOG_INF("Starting TCP socket test...");
 
+    if(!tls_credential_added)
+    {
+        if (tls_setup() < 0) 
+        {
+            return;
+        }  
+        tls_credential_added = true;
+    }
+        
     struct addrinfo hints = {
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
@@ -57,21 +89,6 @@ static void test_tcp_socket(void)
 
     snprintf(port, sizeof(port), "%d", CONFIG_CONTROL_SERVER_PORT);
 
-    if (strlen(CONFIG_CONTROL_TLS_CA_CERT_PEM) == 0U) {
-        LOG_ERR("CONFIG_CONTROL_TLS_CA_CERT_PEM is empty");
-        return;
-    }
-
-    /* Certificate configuration */
-    ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
-                             TLS_CREDENTIAL_CA_CERTIFICATE,
-                             CONFIG_CONTROL_TLS_CA_CERT_PEM,
-                             strlen(CONFIG_CONTROL_TLS_CA_CERT_PEM) + 1U);
-    if ((ret < 0) && (ret != -EEXIST)) {
-        LOG_ERR("tls_credential_add() failed: %d", ret);
-        return;
-    }
-
     /* DNS */
     ret = getaddrinfo(serverHost, port, &hints, &res);
     if (ret != 0) {
@@ -79,8 +96,8 @@ static void test_tcp_socket(void)
         return;
     }
 
-    sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    // sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
+    // sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
     if (sock < 0) {
         LOG_ERR("socket() failed- errno= %d", errno);
         freeaddrinfo(res);
@@ -116,7 +133,7 @@ static void test_tcp_socket(void)
     freeaddrinfo(res);
 
     if (ret < 0) {
-        LOG_ERR("connect() failed");
+        LOG_ERR("connect() failed, error = %d", errno);
         close(sock);
         return;
     }
@@ -143,7 +160,7 @@ static void test_tcp_socket(void)
 
     ret = send(sock, http_req, ret, 0);
     if (ret < 0) {
-        LOG_ERR("send() failed");
+        LOG_ERR("send() failed, error = %d", errno);
         close(sock);
         return;
     }

@@ -25,7 +25,8 @@ manifest:
           - hal_nxp
           - picolibc
           - segger
-
+          - mbedtls
+          
     - name: Catch2
       remote: catchorg
       revision: 644821ce28cb25d7992a4d0375b1d83214392592 # v3.9.1
