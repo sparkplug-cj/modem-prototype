@@ -30,6 +30,8 @@ Follow this guide first, then follow task-specific user instructions.
 
 - Canonical app build (board + revision + shield):
   - `west build control -p auto -b control@a4 --shield sense_a3 -d control/build`
+- Build with secrets overlay (includes prj.secrets.conf):
+  - `west build control -p auto -b control@a4 --shield sense_a3 -d control/build -- -DEXTRA_CONF_FILE=prj.secrets.conf`
 - Build without auto-pristine reuse:
   - `west build control -b control@a4 --shield sense_a3 -d control/build`
 - Force pristine rebuild when changing Kconfig/DTS/CMake wiring:
@@ -158,6 +160,47 @@ If a future Catch2 test tree appears, prefer its local README/build script for e
 - For new symbols, follow Zephyr naming and dependency patterns.
 - Put board-specific hardware details in board DTS/overlay, not generic app code.
 - Keep bindings YAML strict and descriptive.
+
+## Secrets and Configuration
+
+This project includes a `control/prj.secrets.conf` file for sensitive credentials (APN, server endpoints, TLS certificates).
+
+**CRITICAL:** Never commit real secrets to the repository. The file is in `.gitignore`.
+
+### Handling Config Symbols for Secrets
+
+When adding new secret-backed configuration symbols:
+
+1. **Define the symbol in `control/Kconfig`** with an empty default — never put actual secrets here
+   ```kconfig
+   config CONTROL_NEW_SECRET
+       string "Description of the secret"
+       default ""
+       help
+         Set this in prj.secrets.conf to avoid committing credentials.
+   ```
+
+2. **Document in `control/prj.secrets.conf`** with placeholder values and comments
+   ```conf
+   # Example value (replace with your actual secret)
+   CONFIG_CONTROL_NEW_SECRET="placeholder_value"
+   ```
+
+3. **Include the overlay at build time** using the `-DEXTRA_CONF_FILE=prj.secrets.conf` flag
+   ```bash
+   west build control -p auto -b control@a4 --shield sense_a3 -d control/build -- -DEXTRA_CONF_FILE=prj.secrets.conf
+   ```
+
+### Access from C Code
+
+Reference the config symbol as usual:
+```c
+#include <zephyr/kernel.h>
+
+const char *secret = CONFIG_CONTROL_NEW_SECRET;
+```
+
+Kconfig will expand the value from `prj.secrets.conf` if included during the build.
 
 ## Feature Playbook: Zephyr Shell over USB CDC ACM (recommended)
 

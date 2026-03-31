@@ -1,2 +1,53 @@
 rsource "../common/Kconfig"
 
+menu "Control Application Configuration"
+
+config CONTROL_APN
+	string "APN for modem network connection"
+	default ""
+	help
+	  Access Point Name for the cellular modem.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_APN_USERNAME
+	string "APN authentication username"
+	default ""
+	help
+	  Username for APN authentication.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_APN_PASSWORD
+	string "APN authentication password"
+	default ""
+	help
+	  Password for APN authentication.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_HOST
+	string "TCP/HTTPS server hostname"
+	default ""
+	help
+	  Hostname or IP address of the server endpoint.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_URL
+	string "Server URL path"
+	default ""
+	help
+	  URL path for server requests (e.g., /api/endpoint).
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_PORT
+	int "Server port number"
+	default 443
+	help
+	  Port number for the server connection.
+
+config CONTROL_TLS_CA_CERT_PEM
+	string "TLS CA certificate in PEM format"
+	default ""
+	help
+	  PEM-encoded CA certificate for HTTPS server authentication.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+endmenu

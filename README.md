@@ -34,16 +34,41 @@ west update
 
 No `west init` is needed (the repo already contains a local manifest under `.west/`).
 
-## Build (control@a4 + sense_a3 shield)
+## Secrets Configuration
 
-If your Zephyr SDK is not installed in a standard location, set these before building:
+This project requires sensitive configuration (APN credentials, server endpoints, TLS certificates) that must **never be committed to version control**.
+
+### Setup
+
+1. Copy the template:
+   ```bash
+   cp control/prj.secrets.conf.example control/prj.secrets.conf
+   ```
+   (or use the existing `control/prj.secrets.conf` as your template)
+
+2. Edit `control/prj.secrets.conf` and fill in your actual secrets:
+   - APN profile (name, username, password)
+   - Server hostname and URL path
+   - TLS CA certificate in PEM format
+
+3. **Never commit** `control/prj.secrets.conf` — it's already in `.gitignore`.
+
+### Build with secrets
+
+If your Zephyr SDK is not installed in a standard location, set these first:
 
 ```bash
 export ZEPHYR_TOOLCHAIN_VARIANT=zephyr
 export ZEPHYR_SDK_INSTALL_DIR=/path/to/zephyr-sdk-0.17.x
 ```
 
-Then build:
+Then build with secrets overlay:
+
+```bash
+west build control -p auto -b control@a4 --shield sense_a3 -d control/build -- -DEXTRA_CONF_FILE=prj.secrets.conf
+```
+
+To build **without** secrets (for testing/CI):
 
 ```bash
 west build control -p auto -b control@a4 --shield sense_a3 -d control/build
@@ -51,6 +76,8 @@ west build control -p auto -b control@a4 --shield sense_a3 -d control/build
 
 Notes:
 - You do **not** need to export `BOARD_ROOT`/`DTS_ROOT` env vars; the repo CMake wiring sets the required roots.
+- The `-DEXTRA_CONF_FILE=prj.secrets.conf` flag includes the secrets overlay during the Kconfig build phase.
+- If you omit this flag, the build will use empty defaults for secret-backed config symbols.
 
 ## Tests
 

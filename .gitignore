@@ -76,3 +76,7 @@ node_modules/**
 .devcontainer/
 .vscode/
 .venv/
+
+# Secrets and sensitive configuration
+# Never commit prj.secrets.conf with real credentials
+control/prj.secrets.conf
