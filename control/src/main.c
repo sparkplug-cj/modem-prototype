@@ -28,98 +28,56 @@ static bool ppp_test_ready = false;
 static void test_tcp_socket(void)
 {
     int sock;
+    struct sockaddr_in addr;
     char rx_buf[256];
     int ret;
 
     LOG_INF("Starting TCP socket test...");
 
-    struct addrinfo hints = {
-        .ai_family = AF_INET,
-        .ai_socktype = SOCK_STREAM,
-    };
-    struct addrinfo *res;
-
-    /* DNS */
-    ret = getaddrinfo("www.fpinfosmart.net", "443", &hints, &res);
-    if (ret != 0) {
-        LOG_ERR("DNS lookup failed: %d", ret);
-        return;
-    }
-
-    sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    // sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
+    // create socket
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0) {
-        LOG_ERR("socket() failed- errno= %d", errno);
-        freeaddrinfo(res);
+        LOG_ERR("socket() failed");
         return;
     }
 
-    // tls configuration
-    {
-        sec_tag_t sec_tag_list[] = { 1 };
+    /* server address */
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80);
+    net_addr_pton(AF_INET, "93.184.216.34", &addr.sin_addr);
 
-        setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
-                   sec_tag_list, sizeof(sec_tag_list));
-
-        setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
-                   "www.fpinfosmart.net",
-                   strlen("www.fpinfosmart.net"));
-
-        int verify = TLS_PEER_VERIFY_REQUIRED;
-        setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
-                   &verify, sizeof(verify));
-    }
-
-    /* recv timeout */
-    {
-        struct timeval tv = {
-            .tv_sec = 10,
-            .tv_usec = 0,
-        };
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    }
-
-    ret = connect(sock, res->ai_addr, res->ai_addrlen);
-    freeaddrinfo(res);
-
+    /* connect */
+    ret = connect(sock, (struct sockaddr *)&addr, sizeof(addr));
     if (ret < 0) {
         LOG_ERR("connect() failed");
         close(sock);
         return;
     }
 
-    LOG_INF("TCP/TLS connected");
+    LOG_INF("TCP connected");
 
+    /* HTTP request - send */
     const char *http_req =
-        "POST /gus.asmx/dev HTTP/1.1\r\n"
-        "Host: www.fpinfosmart.net\r\n"
-        "Content-Length: 0\r\n"
+        "GET / HTTP/1.1\r\n"
+        "Host: example.com\r\n"
         "Connection: close\r\n"
         "\r\n";
 
-    ret = send(sock, http_req, strlen(http_req), 0);
-    if (ret < 0) {
-        LOG_ERR("send() failed");
-        close(sock);
-        return;
-    }
+    send(sock, http_req, strlen(http_req), 0);
 
-    ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0);
-    if (ret > 0) {
+    /* recv loop */
+    while ((ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0)) > 0) 
+    {
         rx_buf[ret] = '\0';
-        LOG_INF("RX (%d bytes):\n%s", ret, rx_buf);
-    } else if (ret == 0) {
-        LOG_WRN("recv(): connection closed by peer");
-    } else {
-        LOG_ERR("recv() error: %d", errno);
+        LOG_INF("RX:\n%s", rx_buf);
     }
 
     close(sock);
+
     ppp_test_ready = false;
 
     LOG_INF("TCP socket test done");
 }
-
 
 // net_mgmt event handler
 static void net_event_handler(struct net_mgmt_event_callback *cb,
