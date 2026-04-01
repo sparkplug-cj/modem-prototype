@@ -138,6 +138,29 @@ Notes:
 - This charter is intentionally narrow: it validates shell-to-UART AT responsiveness, not PPP, Zephyr cellular integration, or automatic modem power-state management.
 - If command timing proves flaky during bring-up, capture the exact command, observed shell output, and whether the modem had just been powered on/reset.
 
+## Modem PPP shell
+
+The PPP shell uses the APN profile from `control/prj.secrets.conf`. Before testing PPP, set these symbols and rebuild with `-DEXTRA_CONF_FILE=prj.secrets.conf`:
+
+- `CONFIG_CONTROL_APN`
+- `CONFIG_CONTROL_APN_USERNAME`
+- `CONFIG_CONTROL_APN_PASSWORD`
+
+Commands:
+
+```text
+modem ppp connect
+modem ppp status
+modem ppp disconnect
+```
+
+Manual acceptance steps:
+
+- [ ] Run `modem ppp connect` and confirm the command does not require APN, username, or password arguments on the shell
+- [ ] Confirm the modem uses the APN profile from `prj.secrets.conf`
+- [ ] Run `modem ppp status` and confirm it reports the configured APN and link state
+- [ ] Run `modem ppp disconnect` and confirm the PPP session is torn down cleanly
+
 ## Acceptance checklist
 
 - [ ] `west update` completes cleanly

@@ -28,6 +28,7 @@ struct modem_net_profile {
 
 struct modem_net_ops {
 	int (*owner_get)(void);
+	int (*get_profile)(struct modem_net_profile *out);
 	int (*ensure_powered)(void *ctx);
 	int (*configure_context)(void *ctx, const struct modem_net_profile *prof);
 	int (*open_uart_session)(void);

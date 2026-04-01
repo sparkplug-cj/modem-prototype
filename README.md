@@ -47,7 +47,7 @@ This project requires sensitive configuration (APN credentials, server endpoints
    (or use the existing `control/prj.secrets.conf` as your template)
 
 2. Edit `control/prj.secrets.conf` and fill in your actual secrets:
-   - APN profile (name, username, password)
+   - APN profile (name, username, password) used by `modem ppp connect`
    - Server hostname and URL path
    - TLS CA certificate in PEM format
 
@@ -78,6 +78,23 @@ Notes:
 - You do **not** need to export `BOARD_ROOT`/`DTS_ROOT` env vars; the repo CMake wiring sets the required roots.
 - The `-DEXTRA_CONF_FILE=prj.secrets.conf` flag includes the secrets overlay during the Kconfig build phase.
 - If you omit this flag, the build will use empty defaults for secret-backed config symbols.
+
+## PPP shell usage
+
+The modem PPP shell command reads its APN profile from `control/prj.secrets.conf`.
+
+Configure these symbols in the secrets file:
+- `CONFIG_CONTROL_APN`
+- `CONFIG_CONTROL_APN_USERNAME`
+- `CONFIG_CONTROL_APN_PASSWORD`
+
+Then use the shell without positional credentials:
+
+```text
+uart:~$ modem ppp connect
+uart:~$ modem ppp status
+uart:~$ modem ppp disconnect
+```
 
 ## Tests
 

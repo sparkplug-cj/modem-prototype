@@ -12,6 +12,7 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/autoconf.h>
 #include <zephyr/modem/backend/uart.h>
 #include <zephyr/modem/pipe.h>
 #include <zephyr/modem/ppp.h>
@@ -577,6 +578,22 @@ static void modem_net_set_apn(const char *apn)
 	snprintk(modemNetApn, sizeof(modemNetApn), "%s", apn);
 }
 
+static int modem_net_get_profile(struct modem_net_profile *out)
+{
+	if (out == NULL) {
+		return -EINVAL;
+	}
+
+	if (CONFIG_CONTROL_APN[0] == '\0') {
+		return -EINVAL;
+	}
+
+	out->apn = CONFIG_CONTROL_APN;
+	out->id = CONFIG_CONTROL_APN_USERNAME;
+	out->password = CONFIG_CONTROL_APN_PASSWORD;
+	return 0;
+}
+
 static int modem_net_owner_get(void)
 {
 	return (int)modem_uart_owner_get();
@@ -623,6 +640,7 @@ static struct modem_net_ops modem_net_make_ops(const struct shell *sh)
 {
 	return (struct modem_net_ops){
 		.owner_get = modem_net_owner_get,
+		.get_profile = modem_net_get_profile,
 		.ensure_powered = modem_net_ensure_powered,
 		.configure_context = modem_net_configure_context,
 		.open_uart_session = modem_net_open_uart_session,

@@ -530,7 +530,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 }
 
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem_ppp,
-	SHELL_CMD_ARG(connect, NULL, "Bring up modem PPP link: ppp connect <apn> <id> <password>", cmd_modem_ppp_connect, 4, 0),
+	SHELL_CMD_ARG(connect, NULL, "Bring up modem PPP link using the APN profile from prj.secrets.conf: ppp connect", cmd_modem_ppp_connect, 1, 0),
 	SHELL_CMD_ARG(disconnect, NULL, "Tear down modem PPP link", cmd_modem_ppp_disconnect, 1, 0),
 	SHELL_CMD_ARG(status, NULL, "Show modem PPP status", cmd_modem_ppp_status, 1, 0),
 	SHELL_SUBCMD_SET_END
