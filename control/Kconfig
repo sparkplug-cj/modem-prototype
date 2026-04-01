@@ -43,11 +43,25 @@ config CONTROL_SERVER_PORT
 	help
 	  Port number for the server connection.
 
-config CONTROL_TLS_CA_CERT_PEM
-	string "TLS CA certificate in PEM format"
+config CONTROL_TLS_SERVER_CA_CERT_PEM
+	string "TLS server CA certificate in PEM format"
 	default ""
 	help
-	  PEM-encoded CA certificate for HTTPS server authentication.
+	  PEM-encoded CA certificate used to verify the HTTPS server.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_TLS_MTLS_CLIENT_CERT_PEM
+	string "TLS mTLS client certificate in PEM format"
+	default ""
+	help
+	  PEM-encoded client certificate presented by this device for mutual TLS.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_TLS_MTLS_PRIVATE_KEY_PEM
+	string "TLS mTLS private key in PEM format"
+	default ""
+	help
+	  PEM-encoded private key paired with the mTLS client certificate.
 	  Set this in prj.secrets.conf to avoid committing credentials.
 
 endmenu
