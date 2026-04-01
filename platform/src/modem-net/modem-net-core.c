@@ -26,11 +26,9 @@ static const char *modem_net_owner_name(int owner)
 int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, char **argv)
 {
 	const char *failedStage = NULL;
-	struct modem_net_profile prof = {0};
 	int ret;
 
 	if ((ops == NULL) || (ops->owner_get == NULL) || (ops->ensure_powered == NULL) ||
-	    (ops->get_profile == NULL) ||
 	    (ops->configure_context == NULL) || (ops->open_uart_session == NULL) ||
 	    (ops->dial_ppp == NULL) || (ops->attach_ppp == NULL) ||
 	    (ops->wait_for_network == NULL) || (ops->close_uart_session == NULL) ||
@@ -42,26 +40,22 @@ int modem_net_cmd_connect_core(const struct modem_net_ops *ops, size_t argc, cha
 
 	ops->clear_error();
 
-	(void)argv;
 
-	if (argc != 1U) {
-		ops->error(ops->ctx, "usage: modem ppp connect");
-		ops->set_error(-EINVAL, "PPP connect takes no arguments");
+	if (argc < 4U) {
+		ops->error(ops->ctx, "usage: modem ppp connect <apn> <id> <password>");
+		ops->set_error(-EINVAL, "APN/ID/PASS required");
 		return -EINVAL;
 	}
 
-	ret = ops->get_profile(&prof);
-	if (ret != 0) {
-		ops->error(ops->ctx,
-			   "PPP profile is not configured; set CONTROL_APN and credentials in prj.secrets.conf");
-		ops->set_error(ret, "PPP profile not configured");
-		return ret;
-	}
-
-	if ((prof.apn == NULL) || (prof.apn[0] == '\0')) {
-		ops->error(ops->ctx,
-			   "PPP profile is not configured; set CONTROL_APN in prj.secrets.conf");
-		ops->set_error(-EINVAL, "PPP profile not configured");
+	struct modem_net_profile prof = {
+		.apn = argv[1],
+		.id = argv[2],
+		.password = argv[3],
+	};
+	
+	if (prof.apn[0] == '\0') {
+		ops->error(ops->ctx, "usage: modem ppp connect <apn>");
+		ops->set_error(-EINVAL, "APN required");
 		return -EINVAL;
 	}
 
