@@ -27,10 +27,23 @@ static bool ppp_test_ready = false;
 #include <zephyr/net/tls_credentials.h>
 
 #define CONTROL_TLS_SEC_TAG 1
-static const unsigned char ca_cert_pem[] = CONFIG_CONTROL_TLS_CA_CERT_PEM;
+
+static const unsigned char ca_cert_pem[]={
+    #include "ca_cert_pem.inc"
+    0x00, 0x00    
+};
+static const size_t ca_cert_pem_len = sizeof(ca_cert_pem) - 1;
 
 static int tls_setup(void)
 {
+    LOG_INF("CERTI STRING : strlen=%d, sizeof=%d\n", strlen(ca_cert_pem), sizeof(ca_cert_pem));
+    LOG_INF("=== PEM START ===\n%s\n=== PEM END ===\n", ca_cert_pem);
+    
+    // Check certi string
+    for (int i = 0; i < 20; i++) {
+        LOG_INF("%02X ", ca_cert_pem[i]);
+    }
+
     if (strlen(ca_cert_pem) == 0U) {
         LOG_ERR("CONFIG_CONTROL_TLS_CA_CERT_PEM is empty");
         return -1;
@@ -40,7 +53,7 @@ static int tls_setup(void)
     int ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
                              TLS_CREDENTIAL_CA_CERTIFICATE,
                              ca_cert_pem,
-                             strlen(ca_cert_pem) + 1U);
+                             ca_cert_pem_len);
     if (ret < 0) {
         LOG_ERR("tls_credential_add failed: %d", ret);
         return ret;
@@ -143,6 +156,7 @@ static void test_tcp_socket(void)
     ret = snprintf(http_req, sizeof(http_req),
                    "POST %s HTTP/1.1\r\n"
                    "Host: %s\r\n"
+                   "User-Agent: ZephyrTLS/1.0\r\n"
                    "Content-Type: application/octet-stream\r\n"
                    "Content-Length: %zu\r\n"
                    "Connection: close\r\n"
