@@ -49,8 +49,33 @@ static int tls_setup(void)
         return -1;
     }
 
+    ret = NormalizePemCertificate(rawCert,
+                                  ca_cert_pem_normalized,
+                                  sizeof(ca_cert_pem_normalized),
+                                  &normalizedLen,
+                                  &newlineCount);
+    if (ret < 0) {
+        LOG_ERR("CA cert normalization failed: %d (raw_len=%u)",
+                ret,
+                (unsigned int)rawLen);
+        return ret;
+    }
+
+    if (!PemCertificateLooksValid(ca_cert_pem_normalized)) {
+        LOG_ERR("CA cert missing BEGIN/END PEM markers");
+        return -EINVAL;
+    }
+
+    if (newlineCount < 2U) {
+        LOG_ERR("CA cert looks malformed after normalization: newline_count=%u raw_len=%u norm_len=%u",
+            (unsigned int)newlineCount,
+            (unsigned int)rawLen,
+            (unsigned int)normalizedLen);
+        return -EINVAL;
+    }
+
     /* Certificate configuration */
-    int ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
+    ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
                              TLS_CREDENTIAL_CA_CERTIFICATE,
                              ca_cert_pem,
                              ca_cert_pem_len);
@@ -75,9 +100,13 @@ static void test_tcp_socket(void)
     const char *request_body = "Hello word";
     size_t request_body_len = strlen(request_body);
     int ret;
+    int64_t connectStartMs;
+    int64_t connectElapsedMs;
+    int statusCode = -1;
     static bool tls_credential_added = false;
 
     LOG_INF("Starting TCP socket test...");
+    LOG_INF("HTTP target: host=%s port=%d url=%s", serverHost, CONFIG_CONTROL_SERVER_PORT, serverUrl);
 
     if(!tls_credential_added)
     {
@@ -108,29 +137,53 @@ static void test_tcp_socket(void)
         LOG_ERR("DNS lookup failed: %d", ret);
         return;
     }
+    LOG_INF("DNS resolved: family=%d socktype=%d proto=%d", res->ai_family, res->ai_socktype,
+            res->ai_protocol);
 
     // sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
     sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
     if (sock < 0) {
-        LOG_ERR("socket() failed- errno= %d", errno);
+        LogErrnoDetail("socket(IPPROTO_TLS_1_2)");
         freeaddrinfo(res);
         return;
     }
+    LOG_INF("TLS socket created: fd=%d", sock);
 
     // tls configuration
     {
         sec_tag_t sec_tag_list[] = { CONTROL_TLS_SEC_TAG };
 
-        setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
-                   sec_tag_list, sizeof(sec_tag_list));
+        ret = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
+                         sec_tag_list, sizeof(sec_tag_list));
+        if (ret < 0) {
+            LogErrnoDetail("setsockopt(TLS_SEC_TAG_LIST)");
+            close(sock);
+            freeaddrinfo(res);
+            return;
+        }
+        LOG_INF("TLS sec tag configured: %d", CONTROL_TLS_SEC_TAG);
 
-        setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
-                   serverHost,
-                   strlen(serverHost));
+        ret = setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
+                         serverHost,
+                         strlen(serverHost));
+        if (ret < 0) {
+            LogErrnoDetail("setsockopt(TLS_HOSTNAME)");
+            close(sock);
+            freeaddrinfo(res);
+            return;
+        }
+        LOG_INF("TLS hostname set: %s", serverHost);
 
         int verify = TLS_PEER_VERIFY_REQUIRED;
-        setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
-                   &verify, sizeof(verify));
+        ret = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
+                         &verify, sizeof(verify));
+        if (ret < 0) {
+            LogErrnoDetail("setsockopt(TLS_PEER_VERIFY)");
+            close(sock);
+            freeaddrinfo(res);
+            return;
+        }
+        LOG_INF("TLS peer verification required");
     }
 
     /* recv timeout */
@@ -139,19 +192,29 @@ static void test_tcp_socket(void)
             .tv_sec = 10,
             .tv_usec = 0,
         };
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        ret = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        if (ret < 0) {
+            LogErrnoDetail("setsockopt(SO_RCVTIMEO)");
+            close(sock);
+            freeaddrinfo(res);
+            return;
+        }
     }
 
+    LOG_INF("Starting connect (TCP + TLS handshake)...");
+    connectStartMs = k_uptime_get();
     ret = connect(sock, res->ai_addr, res->ai_addrlen);
+    connectElapsedMs = k_uptime_get() - connectStartMs;
     freeaddrinfo(res);
 
     if (ret < 0) {
-        LOG_ERR("connect() failed, error = %d", errno);
+        LOG_ERR("connect()/handshake failed after %lld ms", (long long)connectElapsedMs);
+        LogErrnoDetail("connect");
         close(sock);
         return;
     }
 
-    LOG_INF("TCP/TLS connected");
+    LOG_INF("TCP/TLS connected in %lld ms", (long long)connectElapsedMs);
 
     ret = snprintf(http_req, sizeof(http_req),
                    "POST %s HTTP/1.1\r\n"
@@ -174,19 +237,25 @@ static void test_tcp_socket(void)
 
     ret = send(sock, http_req, ret, 0);
     if (ret < 0) {
-        LOG_ERR("send() failed, error = %d", errno);
+        LogErrnoDetail("send");
         close(sock);
         return;
     }
+    LOG_INF("HTTP request sent (%d bytes)", ret);
 
     ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0);
     if (ret > 0) {
         rx_buf[ret] = '\0';
-        LOG_INF("RX (%d bytes):\n%s", ret, rx_buf);
+        if (sscanf(rx_buf, "HTTP/%*u.%*u %d", &statusCode) == 1) {
+            LOG_INF("HTTP status code: %d", statusCode);
+        } else {
+            LOG_WRN("Could not parse HTTP status line");
+        }
+        LOG_INF("RX first chunk (%d bytes):\n%s", ret, rx_buf);
     } else if (ret == 0) {
         LOG_WRN("recv(): connection closed by peer");
     } else {
-        LOG_ERR("recv() error: %d", errno);
+        LogErrnoDetail("recv");
     }
 
     close(sock);
