@@ -26,6 +26,8 @@ static bool ppp_test_ready = false;
 #include <netinet/in.h>
 #include <zephyr/net/tls_credentials.h>
 
+#include "one_month_arr.h"
+
 #define CONTROL_TLS_SEC_TAG 1
 
 static const unsigned char ca_cert_pem[]={
@@ -63,7 +65,6 @@ static int tls_setup(void)
 }
 
 
-
 static void test_tcp_socket(void)
 {
     int sock;
@@ -71,23 +72,21 @@ static void test_tcp_socket(void)
     char port[6];
     char rx_buf[256];
     const char *serverHost = CONFIG_CONTROL_SERVER_HOST;
-    const char *serverUrl = CONFIG_CONTROL_SERVER_URL;
-    const char *request_body = "Hello word";
-    size_t request_body_len = strlen(request_body);
+    const char *serverUrl  = CONFIG_CONTROL_SERVER_URL;
     int ret;
     static bool tls_credential_added = false;
 
     LOG_INF("Starting TCP socket test...");
 
-    if(!tls_credential_added)
+    if (!tls_credential_added)
     {
-        if (tls_setup() < 0) 
+        if (tls_setup() < 0)
         {
             return;
-        }  
+        }
         tls_credential_added = true;
     }
-        
+
     struct addrinfo hints = {
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
@@ -95,7 +94,8 @@ static void test_tcp_socket(void)
     struct addrinfo *res;
 
     if ((strlen(serverHost) == 0U) ||
-        (strlen(serverUrl) == 0U)) {
+        (strlen(serverUrl)  == 0U))
+    {
         LOG_ERR("Server host or URL is not configured");
         return;
     }
@@ -104,97 +104,142 @@ static void test_tcp_socket(void)
 
     /* DNS */
     ret = getaddrinfo(serverHost, port, &hints, &res);
-    if (ret != 0) {
+    if (ret != 0)
+    {
         LOG_ERR("DNS lookup failed: %d", ret);
         return;
     }
 
-    // sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    /* TLS socket */
     sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
-    if (sock < 0) {
-        LOG_ERR("socket() failed- errno= %d", errno);
+    if (sock < 0)
+    {
+        LOG_ERR("socket() failed - errno = %d", errno);
         freeaddrinfo(res);
         return;
     }
 
-    // tls configuration
+    /* TLS configuration */
     {
         sec_tag_t sec_tag_list[] = { CONTROL_TLS_SEC_TAG };
 
         setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
-                   sec_tag_list, sizeof(sec_tag_list));
+                    sec_tag_list, sizeof(sec_tag_list));
 
         setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
-                   serverHost,
-                   strlen(serverHost));
+                    serverHost, strlen(serverHost));
 
         int verify = TLS_PEER_VERIFY_REQUIRED;
         setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
-                   &verify, sizeof(verify));
+                    &verify, sizeof(verify));
     }
 
     /* recv timeout */
     {
-        struct timeval tv = {
-            .tv_sec = 10,
-            .tv_usec = 0,
-        };
+        struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     }
 
+    /* CONNECT */
     ret = connect(sock, res->ai_addr, res->ai_addrlen);
     freeaddrinfo(res);
-
-    if (ret < 0) {
-        LOG_ERR("connect() failed, error = %d", errno);
+    if (ret < 0)
+    {
+        LOG_ERR("connect() failed - errno = %d", errno);
         close(sock);
         return;
     }
 
     LOG_INF("TCP/TLS connected");
 
+    // send header
     ret = snprintf(http_req, sizeof(http_req),
                    "POST %s HTTP/1.1\r\n"
                    "Host: %s\r\n"
                    "User-Agent: ZephyrTLS/1.0\r\n"
-                   "Content-Type: application/octet-stream\r\n"
-                   "Content-Length: %zu\r\n"
+                   "Content-Type: text/plain\r\n"
+                   "Content-Length: %u\r\n"
                    "Connection: close\r\n"
-                   "\r\n"
-                   "%s",
+                   "\r\n",
                    serverUrl,
                    serverHost,
-                   request_body_len,
-                   request_body);
-    if ((ret < 0) || (ret >= (int)sizeof(http_req))) {
+                   one_month_txt_len);
+
+    if (ret < 0 || ret >= (int)sizeof(http_req))
+    {
         LOG_ERR("HTTP request buffer too small");
         close(sock);
         return;
     }
 
+    LOG_INF("Sending header (%d bytes)", ret);
+
     ret = send(sock, http_req, ret, 0);
-    if (ret < 0) {
-        LOG_ERR("send() failed, error = %d", errno);
+    if (ret < 0)
+    {
+        LOG_ERR("send(header) failed - errno = %d", errno);
         close(sock);
         return;
     }
 
+    // send test data
+    LOG_INF("Uploading file (%u bytes)...", one_month_txt_len);
+
+    size_t offset = 0;
+    const size_t CHUNK = 256;
+
+
+    size_t total_sent = 0;
+
+    while (offset < one_month_txt_len)
+    {
+        size_t len = one_month_txt_len - offset;
+        if (len > CHUNK)
+            len = CHUNK;
+
+        ret = send(sock, &one_month_txt[offset], len, 0);
+
+        if (ret < 0) {
+            LOG_ERR("send() failed at offset %u, errno=%d", offset, errno);
+            break;
+        }
+
+        if (ret == 0) {
+            LOG_ERR("send() returned 0 at offset %u (connection closed?)", offset);
+            break;
+        }
+
+        k_sleep(K_MSEC(2));
+        
+        total_sent += ret;
+        offset += ret; 
+
+        LOG_INF("Sent chunk: %d bytes (total: %u)", ret, total_sent);
+    }
+
+    LOG_INF("Upload finished. Actually sent: %u bytes", total_sent);
+
+    // receive response from server
     ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0);
-    if (ret > 0) {
+    if (ret > 0)
+    {
         rx_buf[ret] = '\0';
         LOG_INF("RX (%d bytes):\n%s", ret, rx_buf);
-    } else if (ret == 0) {
+    }
+    else if (ret == 0)
+    {
         LOG_WRN("recv(): connection closed by peer");
-    } else {
+    }
+    else
+    {
         LOG_ERR("recv() error: %d", errno);
     }
 
     close(sock);
     ppp_test_ready = false;
 
-    LOG_INF("TCP socket test done");
+    LOG_INF("TCP upload test done");
 }
-
 
 // net_mgmt event handler
 static void net_event_handler(struct net_mgmt_event_callback *cb,
