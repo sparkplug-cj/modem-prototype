@@ -22,11 +22,10 @@ target_sources(app PRIVATE
   ${CONTROL_SRC_DIR}/main.c
 )
 
-
 generate_inc_file_for_target(
     app
-    ${CMAKE_CURRENT_SOURCE_DIR}/ca_cert.pem
-    ca_cert_pem.inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/one_month.txt
+    one_month_txt.inc
 )
 
 target_include_directories(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

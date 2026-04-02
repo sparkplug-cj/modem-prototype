@@ -1,16 +1,19 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/net_event.h>
-#include <zephyr/net/net_if.h>
-#include <zephyr/net/socket.h>
-#include <zephyr/net/net_ip.h>
+#include <zephyr/net/http/client.h>
 #include <zephyr/net/ppp.h>
+#include <zephyr/net/socket.h>
+#include <zephyr/net/tls_credentials.h>
 
 #include <errno.h>
+#include <netdb.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/socket.h>
+
+#include "one_month.h"
 
 LOG_MODULE_REGISTER(control_app, LOG_LEVEL_INF);
 
@@ -21,318 +24,368 @@ static struct net_mgmt_event_callback net_cb_l4;
 static bool tcp_test_done = false;
 static bool ppp_test_ready = false;
 
-#include <netdb.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <zephyr/net/tls_credentials.h>
-
 #define CONTROL_TLS_SEC_TAG 1
+#define CONTROL_HTTP_TIMEOUT_MS (180 * MSEC_PER_SEC)
+#define CONTROL_HTTP_CHUNK_SIZE 1024U
 
-static const unsigned char ca_cert_pem[]={
-    #include "ca_cert_pem.inc"
-    0x00, 0x00    
+struct upload_progress {
+    size_t total_size;
+    size_t bytes_sent;
+    size_t chunks_sent;
 };
-static const size_t ca_cert_pem_len = sizeof(ca_cert_pem) - 1;
 
-static int NormalizePemBlock(const char *label,
-                             const char *rawPem,
-                             char *normalizedPem,
-                             size_t normalizedPemSize,
-                             const char *beginMarker,
-                             const char *endMarker,
-                             size_t *normalizedLen)
+struct upload_context {
+    struct upload_progress progress;
+    unsigned int http_status_code;
+    bool http_status_logged;
+    bool response_complete;
+};
+
+static size_t normalize_pem_string(const char *src, char *dst, size_t dst_size)
 {
-    LOG_INF("CERTI STRING : strlen=%d, sizeof=%d\n", strlen(ca_cert_pem), sizeof(ca_cert_pem));
-    LOG_INF("=== PEM START ===\n%s\n=== PEM END ===\n", ca_cert_pem);
-    
-    // Check certi string
-    for (int i = 0; i < 20; i++) {
-        LOG_INF("%02X ", ca_cert_pem[i]);
+    size_t src_idx = 0U;
+    size_t dst_idx = 0U;
+
+    while ((src[src_idx] != '\0') && (dst_idx + 1U < dst_size)) {
+        if (src[src_idx] == '\\') {
+            /* Handle both escaped (\\n) and double-escaped (\\\\n) newline forms. */
+            if ((src[src_idx + 1U] == '\\') && (src[src_idx + 2U] != '\0')) {
+                switch (src[src_idx + 2U]) {
+                case 'n':
+                    dst[dst_idx++] = '\n';
+                    src_idx += 3U;
+                    continue;
+                case 'r':
+                    dst[dst_idx++] = '\r';
+                    src_idx += 3U;
+                    continue;
+                case 't':
+                    dst[dst_idx++] = '\t';
+                    src_idx += 3U;
+                    continue;
+                default:
+                    break;
+                }
+            }
+
+            if (src[src_idx + 1U] != '\0') {
+                switch (src[src_idx + 1U]) {
+                case 'n':
+                    dst[dst_idx++] = '\n';
+                    src_idx += 2U;
+                    continue;
+                case 'r':
+                    dst[dst_idx++] = '\r';
+                    src_idx += 2U;
+                    continue;
+                case 't':
+                    dst[dst_idx++] = '\t';
+                    src_idx += 2U;
+                    continue;
+                case '\\':
+                    dst[dst_idx++] = '\\';
+                    src_idx += 2U;
+                    continue;
+                default:
+                    break;
+                }
+            }
+        }
+
+        dst[dst_idx++] = src[src_idx++];
     }
 
-    if (strlen(ca_cert_pem) == 0U) {
-        LOG_ERR("CONFIG_CONTROL_TLS_CA_CERT_PEM is empty");
-        return -1;
-    }
-
-    ret = NormalizePemCertificate(rawPem,
-                                  normalizedPem,
-                                  normalizedPemSize,
-                                  normalizedLen,
-                                  &newlineCount);
-    if (ret < 0) {
-        LOG_ERR("%s normalization failed: %d (raw_len=%u)",
-                label,
-                ret,
-                (unsigned int)rawLen);
-        return ret;
-    }
-
-    if (!PemBlockLooksValid(normalizedPem, beginMarker, endMarker)) {
-        LOG_ERR("%s missing PEM markers", label);
-        return -EINVAL;
-    }
-
-    if (newlineCount < 2U) {
-        LOG_ERR("%s looks malformed after normalization: newline_count=%u raw_len=%u norm_len=%u",
-                label,
-                (unsigned int)newlineCount,
-                (unsigned int)rawLen,
-                (unsigned int)*normalizedLen);
-        return -EINVAL;
-    }
-
-    /* Certificate configuration */
-    ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
-                             TLS_CREDENTIAL_CA_CERTIFICATE,
-                             ca_cert_pem,
-                             ca_cert_pem_len);
-    if (ret < 0) {
-        return ret;
-    }
-
-    ret = tls_credential_add(secTag,
-                             credentialType,
-                             normalizedPem,
-                             normalizedLen + 1U);
-    if (ret < 0) {
-        LOG_ERR("%s registration failed: %d", label, ret);
-        return ret;
-    }
-
-    LOG_INF("%s registered (sec_tag=%d len=%u)",
-            label,
-            secTag,
-            (unsigned int)normalizedLen);
-    return 0;
-}
-
-static int SendHttpChunkedRequest(int sock,
-                                  const char *serverHost,
-                                  const char *serverUrl,
-                                  const char *requestBody)
-{
-    char requestHeaders[384];
-    char chunkHeader[16];
-    size_t requestBodyLen = strlen(requestBody);
-    int ret;
-
-    ret = snprintf(requestHeaders, sizeof(requestHeaders),
-                   "POST %s HTTP/1.1\r\n"
-                   "Host: %s\r\n"
-                   "Accept: application/octet-stream\r\n"
-                   "Content-Type: application/octet-stream\r\n"
-                   "Transfer-Encoding: chunked\r\n"
-                   "Connection: close\r\n"
-                   "\r\n",
-                   serverUrl,
-                   serverHost);
-    if ((ret < 0) || (ret >= (int)sizeof(requestHeaders))) {
-        LOG_ERR("HTTP header buffer too small");
-        return -ENOMEM;
-    }
-
-    ret = send(sock, requestHeaders, ret, 0);
-    if (ret < 0) {
-        LogErrnoDetail("send(headers)");
-        return ret;
-    }
-    LOG_INF("HTTP headers sent (%d bytes)", ret);
-
-    ret = snprintf(chunkHeader, sizeof(chunkHeader), "%zx\r\n", requestBodyLen);
-    if ((ret < 0) || (ret >= (int)sizeof(chunkHeader))) {
-        LOG_ERR("HTTP chunk header buffer too small");
-        return -ENOMEM;
-    }
-
-    ret = send(sock, chunkHeader, ret, 0);
-    if (ret < 0) {
-        LogErrnoDetail("send(chunk header)");
-        return ret;
-    }
-
-    ret = send(sock, requestBody, requestBodyLen, 0);
-    if (ret < 0) {
-        LogErrnoDetail("send(chunk body)");
-        return ret;
-    }
-    LOG_INF("HTTP chunk body sent (%u bytes)", (unsigned int)requestBodyLen);
-
-    ret = send(sock, "\r\n0\r\n\r\n", 7, 0);
-    if (ret < 0) {
-        LogErrnoDetail("send(chunk terminator)");
-        return ret;
-    }
-    LOG_INF("HTTP chunk terminator sent");
-    return 0;
+    dst[dst_idx] = '\0';
+    return dst_idx;
 }
 
 static int tls_setup(void)
 {
-    const char *rawServerCaCert = (const char *)server_ca_cert_pem;
-    const char *rawMtlClientCert = (const char *)mtls_client_cert_pem;
-    const char *rawMtlsPrivateKey = (const char *)mtls_private_key_pem;
+    static char ca_cert_pem[sizeof(CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM)];
+    const char *ca_cert_pem_raw = CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM;
+
+    if (strlen(ca_cert_pem_raw) == 0U) {
+        LOG_ERR("TLS certificate empty - check prj.secrets.conf CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM");
+        return -1;
+    }
+
+    const size_t ca_cert_pem_len = normalize_pem_string(ca_cert_pem_raw,
+                                                        ca_cert_pem,
+                                                        sizeof(ca_cert_pem));
+
+    if (ca_cert_pem_len == 0U) {
+        LOG_ERR("PEM normalization failed - empty result");
+        return -1;
+    }
+
+    LOG_INF("Storing CA certificate: %u bytes (normalized from config)", ca_cert_pem_len);
+    int ret = tls_credential_add(CONTROL_TLS_SEC_TAG,
+                             TLS_CREDENTIAL_CA_CERTIFICATE,
+                             ca_cert_pem,
+                             ca_cert_pem_len + 1U);
+    if (ret < 0) {
+        return ret;
+    }
+    LOG_INF("TLS CA certificate stored and registered (sec_tag=%d)", CONTROL_TLS_SEC_TAG);
+    return 0;
+}
+
+static int configure_tls_socket(int sock, const char *server_host)
+{
+    sec_tag_t sec_tag_list[] = { CONTROL_TLS_SEC_TAG };
+    const int verify = TLS_PEER_VERIFY_REQUIRED;
+    const struct timeval recv_timeout = {
+        .tv_sec = 180,
+        .tv_usec = 0,
+    };
     int ret;
 
-    ret = RegisterPemCredential(CONTROL_TLS_SEC_TAG,
-                                TLS_CREDENTIAL_CA_CERTIFICATE,
-                                "Server CA certificate",
-                                rawServerCaCert,
-                                server_ca_cert_pem_normalized,
-                                sizeof(server_ca_cert_pem_normalized),
-                                "-----BEGIN CERTIFICATE-----",
-                                "-----END CERTIFICATE-----");
+    ret = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
+                     sec_tag_list, sizeof(sec_tag_list));
     if (ret < 0) {
-        return ret;
+        return -errno;
     }
 
-    if ((strlen(rawMtlClientCert) == 0U) && (strlen(rawMtlsPrivateKey) == 0U)) {
-        LOG_INF("mTLS client credentials not configured");
-        return 0;
-    }
-
-    if ((strlen(rawMtlClientCert) == 0U) || (strlen(rawMtlsPrivateKey) == 0U)) {
-        LOG_ERR("mTLS requires both client certificate and private key");
-        return -EINVAL;
-    }
-
-    ret = RegisterPemCredential(CONTROL_TLS_SEC_TAG,
-                                TLS_CREDENTIAL_PUBLIC_CERTIFICATE,
-                                "mTLS client certificate",
-                                rawMtlClientCert,
-                                mtls_client_cert_pem_normalized,
-                                sizeof(mtls_client_cert_pem_normalized),
-                                "-----BEGIN CERTIFICATE-----",
-                                "-----END CERTIFICATE-----");
+    ret = setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
+                     server_host, strlen(server_host));
     if (ret < 0) {
-        return ret;
+        return -errno;
     }
 
-    ret = RegisterPemCredential(CONTROL_TLS_SEC_TAG,
-                                TLS_CREDENTIAL_PRIVATE_KEY,
-                                "mTLS private key",
-                                rawMtlsPrivateKey,
-                                mtls_private_key_pem_normalized,
-                                sizeof(mtls_private_key_pem_normalized),
-                                "-----BEGIN EC PRIVATE KEY-----",
-                                "-----END EC PRIVATE KEY-----");
+    ret = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
+                     &verify, sizeof(verify));
     if (ret < 0) {
-        return ret;
+        return -errno;
+    }
+
+    ret = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO,
+                     &recv_timeout, sizeof(recv_timeout));
+    if (ret < 0) {
+        return -errno;
     }
 
     return 0;
 }
 
+static bool http_status_is_success(unsigned int status_code)
+{
+    return (status_code >= 200U) && (status_code < 300U);
+}
+
+static int response_cb(struct http_response *rsp,
+                       enum http_final_call final_data,
+                       void *user_data)
+{
+    struct upload_context *context = user_data;
+
+    if (rsp == NULL) {
+        LOG_ERR("HTTP response is NULL");
+        return -EINVAL;
+    }
+
+    if (context != NULL) {
+        context->http_status_code = rsp->http_status_code;
+    }
+
+    if ((rsp->http_status_code > 0U) &&
+        ((context == NULL) || !context->http_status_logged)) {
+        LOG_INF("HTTP Status: %u (%s)",
+                (unsigned int)rsp->http_status_code,
+                rsp->http_status != NULL ? rsp->http_status : "");
+        if (context != NULL) {
+            context->http_status_logged = true;
+        }
+    }
+
+    if (final_data == HTTP_DATA_MORE) {
+        LOG_DBG("HTTP response chunk: %u bytes", (unsigned int)rsp->data_len);
+        return 0;
+    }
+
+    if (context != NULL) {
+        context->response_complete = true;
+    }
+
+    LOG_INF("HTTP response complete: status=%u, total processed=%u bytes",
+            (unsigned int)rsp->http_status_code,
+            (unsigned int)rsp->processed);
+
+    return 0;
+}
+
+static int send_buffer_with_retry(int sock, const void *buffer, size_t length)
+{
+    const uint8_t *data = buffer;
+    size_t offset = 0U;
+
+    while (offset < length) {
+        const ssize_t ret = send(sock, data + offset, length - offset, 0);
+
+        if (ret > 0) {
+            offset += (size_t)ret;
+            continue;
+        }
+
+        if ((ret < 0) && (errno == EAGAIN || errno == ENOMEM)) {
+            k_sleep(K_MSEC(50));
+            continue;
+        }
+
+        return (ret < 0) ? -errno : -EIO;
+    }
+
+    return 0;
+}
+
+static int payload_cb(int sock, struct http_request *req, void *user_data)
+{
+    ARG_UNUSED(req);
+
+    struct upload_context *context = user_data;
+    struct upload_progress *progress = &context->progress;
+    const uint8_t *payload = one_month_data;
+    const size_t total_size = ONE_MONTH_DATA_SIZE;
+    size_t offset = 0U;
+    int total_sent = 0;
+
+    while (offset < total_size) {
+        char chunk_header[16];
+        const size_t chunk_size = MIN(CONTROL_HTTP_CHUNK_SIZE, total_size - offset);
+        const int header_len = snprintk(chunk_header, sizeof(chunk_header), "%zx\r\n", chunk_size);
+        int ret;
+
+        if (header_len <= 0 || header_len >= (int)sizeof(chunk_header)) {
+            LOG_ERR("Failed to build chunk header");
+            return -ENOMEM;
+        }
+
+        ret = send_buffer_with_retry(sock, chunk_header, (size_t)header_len);
+        if (ret < 0) {
+            LOG_ERR("Failed to send chunk header: %d", ret);
+            return ret;
+        }
+
+        ret = send_buffer_with_retry(sock, payload + offset, chunk_size);
+        if (ret < 0) {
+            LOG_ERR("Failed to send chunk payload at offset %u: %d",
+                    (unsigned int)offset,
+                    ret);
+            return ret;
+        }
+
+        ret = send_buffer_with_retry(sock, "\r\n", 2U);
+        if (ret < 0) {
+            LOG_ERR("Failed to send chunk terminator: %d", ret);
+            return ret;
+        }
+
+        offset += chunk_size;
+        progress->bytes_sent = offset;
+        progress->chunks_sent++;
+        total_sent += header_len + (int)chunk_size + 2;
+
+        if ((progress->chunks_sent == 1U) ||
+            ((progress->chunks_sent % 16U) == 0U) ||
+            (offset == total_size)) {
+            LOG_INF("Chunk progress: %u/%u bytes, chunk %u",
+                    (unsigned int)progress->bytes_sent,
+                    (unsigned int)progress->total_size,
+                    (unsigned int)progress->chunks_sent);
+        }
+    }
+
+    if (send_buffer_with_retry(sock, "0\r\n\r\n", 5U) < 0) {
+        LOG_ERR("Failed to send final chunk terminator");
+        return -EIO;
+    }
+
+    LOG_INF("Chunked payload transmission complete: %u chunks",
+            (unsigned int)progress->chunks_sent);
+
+    return total_sent + 5;
+}
 
 
-static void test_tcp_socket(void)
+
+static int test_tcp_socket(void)
 {
     int sock;
     char port[6];
-    char rx_buf[256];
-    const char *serverHost = CONFIG_CONTROL_SERVER_HOST;
-    const char *serverUrl = CONFIG_CONTROL_SERVER_URL;
-    const char *request_body = "Hello word";
+    uint8_t rx_buf[512];
+    const char *server_host = CONFIG_CONTROL_SERVER_HOST;
+    const char *server_url = CONFIG_CONTROL_SERVER_URL;
     int ret;
     int64_t connectStartMs;
     int64_t connectElapsedMs;
-    int statusCode = -1;
     static bool tls_credential_added = false;
-
-    LOG_INF("Starting TCP socket test...");
-    LOG_INF("HTTP target: host=%s port=%d url=%s", serverHost, CONFIG_CONTROL_SERVER_PORT, serverUrl);
-
-    if(!tls_credential_added)
-    {
-        if (tls_setup() < 0) 
-        {
-            return;
-        }  
-        tls_credential_added = true;
-    }
-        
+    struct http_request req;
+    struct upload_context context = {
+        .progress = {
+            .total_size = ONE_MONTH_DATA_SIZE,
+            .bytes_sent = 0U,
+            .chunks_sent = 0U,
+        },
+        .http_status_code = 0U,
+        .http_status_logged = false,
+        .response_complete = false,
+    };
+    const char *headers[] = {
+        "Transfer-Encoding: chunked\r\n",
+        "Connection: close\r\n",
+        NULL,
+    };
     struct addrinfo hints = {
         .ai_family = AF_INET,
         .ai_socktype = SOCK_STREAM,
     };
     struct addrinfo *res;
 
-    if ((strlen(serverHost) == 0U) ||
-        (strlen(serverUrl) == 0U)) {
-        LOG_ERR("Server host or URL is not configured");
-        return;
+    LOG_INF("===== HTTP Upload Flow Start =====");
+    LOG_INF("Target: %s%s (%u bytes)", server_host, server_url, ONE_MONTH_DATA_SIZE);
+    LOG_INF("Payload preview: %.32s", (const char *)one_month_data);
+
+    if (!tls_credential_added) {
+        LOG_INF("Initializing TLS credentials...");
+        if (tls_setup() < 0) {
+            LOG_ERR("TLS setup failed");
+            return -EIO;
+        }
+        tls_credential_added = true;
+    }
+
+    if ((strlen(server_host) == 0U) ||
+        (strlen(server_url) == 0U)) {
+        LOG_ERR("Server configuration incomplete: host='%s' url='%s'", server_host, server_url);
+        LOG_ERR("Check prj.secrets.conf for CONFIG_CONTROL_SERVER_HOST and CONFIG_CONTROL_SERVER_URL");
+        return -EINVAL;
     }
 
     snprintf(port, sizeof(port), "%d", CONFIG_CONTROL_SERVER_PORT);
 
     /* DNS */
-    ret = getaddrinfo(serverHost, port, &hints, &res);
+    LOG_INF("DNS lookup: %s:%s", server_host, port);
+    ret = getaddrinfo(server_host, port, &hints, &res);
     if (ret != 0) {
-        LOG_ERR("DNS lookup failed: %d", ret);
-        return;
+        LOG_ERR("DNS lookup failed: error %d", ret);
+        return -EHOSTUNREACH;
     }
-    LOG_INF("DNS resolved: family=%d socktype=%d proto=%d", res->ai_family, res->ai_socktype,
-            res->ai_protocol);
+    LOG_INF("DNS resolved, creating TLS socket...");
 
-    // sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    /* Use TLS 1.2 protocol directly in socket creation */
     sock = socket(res->ai_family, res->ai_socktype, IPPROTO_TLS_1_2);
     if (sock < 0) {
-        LogErrnoDetail("socket(IPPROTO_TLS_1_2)");
+        LOG_ERR("socket() failed: errno=%d", errno);
         freeaddrinfo(res);
-        return;
+        return -errno;
     }
-    LOG_INF("TLS socket created: fd=%d", sock);
+    LOG_INF("TLS socket created, configuring parameters...");
 
-    // tls configuration
-    {
-        sec_tag_t sec_tag_list[] = { CONTROL_TLS_SEC_TAG };
-
-        ret = setsockopt(sock, SOL_TLS, TLS_SEC_TAG_LIST,
-                         sec_tag_list, sizeof(sec_tag_list));
-        if (ret < 0) {
-            LogErrnoDetail("setsockopt(TLS_SEC_TAG_LIST)");
-            close(sock);
-            freeaddrinfo(res);
-            return;
-        }
-        LOG_INF("TLS sec tag configured: %d", CONTROL_TLS_SEC_TAG);
-
-        ret = setsockopt(sock, SOL_TLS, TLS_HOSTNAME,
-                         serverHost,
-                         strlen(serverHost));
-        if (ret < 0) {
-            LogErrnoDetail("setsockopt(TLS_HOSTNAME)");
-            close(sock);
-            freeaddrinfo(res);
-            return;
-        }
-        LOG_INF("TLS hostname set: %s", serverHost);
-
-        int verify = TLS_PEER_VERIFY_REQUIRED;
-        ret = setsockopt(sock, SOL_TLS, TLS_PEER_VERIFY,
-                         &verify, sizeof(verify));
-        if (ret < 0) {
-            LogErrnoDetail("setsockopt(TLS_PEER_VERIFY)");
-            close(sock);
-            freeaddrinfo(res);
-            return;
-        }
-        LOG_INF("TLS peer verification required");
-    }
-
-    /* recv timeout */
-    {
-        struct timeval tv = {
-            .tv_sec = 10,
-            .tv_usec = 0,
-        };
-        ret = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        if (ret < 0) {
-            LogErrnoDetail("setsockopt(SO_RCVTIMEO)");
-            close(sock);
-            freeaddrinfo(res);
-            return;
-        }
+    ret = configure_tls_socket(sock, server_host);
+    if (ret < 0) {
+        LOG_ERR("TLS socket configuration failed: %d", ret);
+        close(sock);
+        freeaddrinfo(res);
+        return ret;
     }
 
     LOG_INF("Starting connect (TCP + TLS handshake)...");
@@ -342,62 +395,66 @@ static void test_tcp_socket(void)
     freeaddrinfo(res);
 
     if (ret < 0) {
-        LOG_ERR("connect()/handshake failed after %lld ms", (long long)connectElapsedMs);
-        LogErrnoDetail("connect");
+        LOG_ERR("connect() failed: errno=%d", errno);
         close(sock);
-        return;
+        return -errno;
     }
 
-    LOG_INF("TCP/TLS connected in %lld ms", (long long)connectElapsedMs);
+    LOG_INF("Connect + TLS handshake time: %lld ms", connectElapsedMs);
+    LOG_INF("TLS 1.2 handshake complete with %s", server_host);
 
-    ret = snprintf(http_req, sizeof(http_req),
-                   "POST %s HTTP/1.1\r\n"
-                   "Host: %s\r\n"
-                   "User-Agent: ZephyrTLS/1.0\r\n"
-                   "Content-Type: application/octet-stream\r\n"
-                   "Content-Length: %zu\r\n"
-                   "Connection: close\r\n"
-                   "\r\n"
-                   "%s",
-                   serverUrl,
-                   serverHost,
-                   request_body_len,
-                   request_body);
-    if ((ret < 0) || (ret >= (int)sizeof(http_req))) {
-        LOG_ERR("HTTP request buffer too small");
-        close(sock);
-        return;
-    }
+    memset(&req, 0, sizeof(req));
 
-    ret = send(sock, http_req, ret, 0);
+    req.method = HTTP_POST;
+    req.url = server_url;
+    req.host = server_host;
+    req.protocol = "HTTP/1.1";
+    req.content_type_value = "application/octet-stream";
+    req.header_fields = headers;
+    req.payload_cb = payload_cb;
+    req.response = response_cb;
+    req.recv_buf = rx_buf;
+    req.recv_buf_len = sizeof(rx_buf);
+
+    LOG_INF("HTTP POST request: %s, chunked payload=%u bytes, chunk_size=%u, rx_buf=%u bytes",
+            server_url,
+            ONE_MONTH_DATA_SIZE,
+            CONTROL_HTTP_CHUNK_SIZE,
+            sizeof(rx_buf));
+
+    ret = http_client_req(sock, &req, CONTROL_HTTP_TIMEOUT_MS, &context);
     if (ret < 0) {
+        LOG_ERR("http_client_req() failed: %d", ret);
         close(sock);
-        return;
+        return ret;
     }
 
-    ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0);
-    if (ret > 0) {
-        rx_buf[ret] = '\0';
-        if (sscanf(rx_buf, "HTTP/%*u.%*u %d", &statusCode) == 1) {
-            LOG_INF("HTTP status code: %d", statusCode);
-        } else {
-            LOG_WRN("Could not parse HTTP status line");
-        }
-        LOG_INF("RX first chunk (%d bytes):\n%s", ret, rx_buf);
-    } else if (ret == 0) {
-        LOG_WRN("recv(): connection closed by peer");
-    } else {
-        LogErrnoDetail("recv");
+    if (!context.response_complete) {
+        LOG_ERR("HTTP request finished without a complete response");
+        close(sock);
+        return -EBADMSG;
     }
+
+    if (!http_status_is_success(context.http_status_code)) {
+        LOG_ERR("HTTP request failed with status %u", context.http_status_code);
+        close(sock);
+        return -EBADMSG;
+    }
+
+    LOG_INF("HTTP request complete: tx_bytes=%u, status=%u",
+            (unsigned int)ret,
+            context.http_status_code);
 
     close(sock);
     ppp_test_ready = false;
 
-    LOG_INF("TCP socket test done");
+    LOG_INF("===== HTTP Upload Flow Complete =====");
+
+    return 0;
 }
 
 
-// net_mgmt event handler
+/* Net management event handler: triggers HTTP upload test when network is ready */
 static void net_event_handler(struct net_mgmt_event_callback *cb,
                               uint64_t mgmt_event,
                               struct net_if *iface)
@@ -407,13 +464,9 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
 
     if ((mgmt_event == NET_EVENT_PPP_PHASE_RUNNING ||
          mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
-         mgmt_event == NET_EVENT_L4_CONNECTED ) && !tcp_test_done) 
-    {
-
-        tcp_test_done = true;
+         mgmt_event == NET_EVENT_L4_CONNECTED) && !ppp_test_ready) {
         ppp_test_ready = true;
-
-        LOG_INF("PPP is RUNNING → starting TCP test");
+        LOG_INF("Network ready: initiating HTTP upload test");
     }
 }
 
@@ -424,33 +477,43 @@ int main(void)
     tcp_test_done = false;
     ppp_test_ready = false;
 
-    /* net_mgmt : register event handler */
-    // 1. L2 (PPP) 
+    /* Register network event callbacks */
     net_mgmt_init_event_callback(&net_cb_l2,
                                  net_event_handler,
-                                 NET_EVENT_PPP_PHASE_RUNNING );
+                                 NET_EVENT_PPP_PHASE_RUNNING);
     net_mgmt_add_event_callback(&net_cb_l2);
 
-    // 2. L3 (IPv4 / DNS)
     net_mgmt_init_event_callback(&net_cb_l3,
                                  net_event_handler,
                                  NET_EVENT_IPV4_ADDR_ADD |
                                  NET_EVENT_DNS_SERVER_ADD);
     net_mgmt_add_event_callback(&net_cb_l3);
 
-        // 3. L4 (Socket)
     net_mgmt_init_event_callback(&net_cb_l4,
                                  net_event_handler,
-                                 NET_EVENT_L4_CONNECTED );
+                                 NET_EVENT_L4_CONNECTED);
     net_mgmt_add_event_callback(&net_cb_l4);
 
-    while (1) {
+    /* Main event loop - send data once when network is ready */
+    while (!tcp_test_done) {
+        if (ppp_test_ready) {
+            const int uploadStatus = test_tcp_socket();
 
-        if(ppp_test_ready)
-        {
-            test_tcp_socket();
+            tcp_test_done = true;
+            if (uploadStatus == 0) {
+                LOG_INF("Upload finished successfully");
+            } else {
+                LOG_ERR("Upload finished with error: %d", uploadStatus);
+            }
+
+            break;
         }
         k_sleep(K_SECONDS(1));
+    }
+
+    LOG_INF("Main loop complete, entering idle loop");
+    while (1) {
+        k_sleep(K_SECONDS(60));
     }
 
     return 0;
