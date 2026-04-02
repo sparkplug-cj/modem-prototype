@@ -644,12 +644,43 @@ static struct modem_net_ops modem_net_make_ops(const struct shell *sh)
 int cmd_modem_ppp_connect(const struct shell *sh, size_t argc, char **argv)
 {
 	int ret;
+	bool usedSecretFallback = false;
+	size_t effectiveArgc = argc;
+	char *effectiveArgv[4];
 	struct modem_net_ops ops;
+
+	if (argc < 1U) {
+		shell_error(sh, "usage: modem ppp connect [<apn> <id> <password>]");
+		return -EINVAL;
+	}
+
+	effectiveArgv[0] = argv[0];
+	effectiveArgv[1] = (argc > 1U && argv[1][0] != '\0') ? argv[1] : (char *)CONFIG_CONTROL_APN;
+	effectiveArgv[2] = (argc > 2U) ? argv[2] : (char *)CONFIG_CONTROL_APN_USERNAME;
+	effectiveArgv[3] = (argc > 3U) ? argv[3] : (char *)CONFIG_CONTROL_APN_PASSWORD;
+
+	if ((argc <= 1U) ||
+	    (argc == 2U) ||
+	    (argc == 3U) ||
+	    ((argc > 1U) && (argv[1][0] == '\0'))) {
+		usedSecretFallback = true;
+		effectiveArgc = 4U;
+	}
+
+	if ((effectiveArgv[1] == NULL) || (effectiveArgv[1][0] == '\0')) {
+		shell_error(sh,
+			    "APN is missing. Provide: modem ppp connect <apn> <id> <password> or set CONFIG_CONTROL_APN in prj.secrets.conf");
+		return -EINVAL;
+	}
+
+	if (usedSecretFallback) {
+		shell_print(sh, "PPP connect: using missing credentials from CONFIG_CONTROL_APN* in prj.secrets.conf");
+	}
 
 	modem_net_init_once();
 	k_mutex_lock(&modemNetLock, K_FOREVER);
 	ops = modem_net_make_ops(sh);
-	ret = modem_net_cmd_connect_core(&ops, argc, argv);
+	ret = modem_net_cmd_connect_core(&ops, effectiveArgc, effectiveArgv);
 	k_mutex_unlock(&modemNetLock);
 	return ret;
 }
