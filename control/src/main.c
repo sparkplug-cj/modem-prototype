@@ -71,7 +71,7 @@ static void test_tcp_socket(void)
     char http_req[256];
     char port[6];
     char rx_buf[256];
-    const char *serverHost = CONFIG_CONTROL_SERVER_HOST;
+    const char *serverHost = CONFIG_CONTROL_SERVER_HOST; 
     const char *serverUrl  = CONFIG_CONTROL_SERVER_URL;
     int ret;
     static bool tls_credential_added = false;
@@ -153,11 +153,22 @@ static void test_tcp_socket(void)
     LOG_INF("TCP/TLS connected");
 
     // send header
+    // ret = snprintf(http_req, sizeof(http_req),
+    //                "POST %s HTTP/1.1\r\n"
+    //                "Host: %s\r\n"
+    //                "User-Agent: ZephyrTLS/1.0\r\n"
+    //                "Content-Type: text/plain\r\n"
+    //                "Content-Length: %u\r\n"
+    //                "Connection: close\r\n"
+    //                "\r\n",
+    //                serverUrl,
+    //                serverHost,
+    //                one_month_txt_len);
     ret = snprintf(http_req, sizeof(http_req),
                    "POST %s HTTP/1.1\r\n"
                    "Host: %s\r\n"
-                   "User-Agent: ZephyrTLS/1.0\r\n"
-                   "Content-Type: text/plain\r\n"
+                   "Accept: application/octet-stream\r\n"
+                   "Content-Type: application/octet-stream\r\n"
                    "Content-Length: %u\r\n"
                    "Connection: close\r\n"
                    "\r\n",
@@ -186,7 +197,7 @@ static void test_tcp_socket(void)
     LOG_INF("Uploading file (%u bytes)...", one_month_txt_len);
 
     size_t offset = 0;
-    const size_t CHUNK = 256;
+    const size_t CHUNK = 1024;
 
 
     size_t total_sent = 0;
@@ -208,8 +219,6 @@ static void test_tcp_socket(void)
             LOG_ERR("send() returned 0 at offset %u (connection closed?)", offset);
             break;
         }
-
-        k_sleep(K_MSEC(2));
         
         total_sent += ret;
         offset += ret; 
@@ -218,6 +227,8 @@ static void test_tcp_socket(void)
     }
 
     LOG_INF("Upload finished. Actually sent: %u bytes", total_sent);
+
+    k_sleep(K_MSEC(100));
 
     // receive response from server
     ret = recv(sock, rx_buf, sizeof(rx_buf) - 1, 0);
