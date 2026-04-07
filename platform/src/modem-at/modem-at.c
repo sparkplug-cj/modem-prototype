@@ -9,15 +9,109 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
+#include <zephyr/sys/ring_buffer.h>
 
 #define MODEM_UART_NODE DT_NODELABEL(modem_uart)
 #define MODEM_AT_RESPONSE_TIMEOUT_MS 5000
 #define MODEM_AT_INTER_CHAR_TIMEOUT_MS 1000
-#define MODEM_AT_PRE_SEND_FLUSH_MS 50
 #define MODEM_AT_IRQ_RX_CHUNK_SIZE 64
+#define MODEM_AT_IRQ_RX_RING_SIZE 512
 
 static const struct device *const modemUart = DEVICE_DT_GET(MODEM_UART_NODE);
 static struct modem_at_diagnostics lastDiagnostics;
+static uint8_t modemAtIrqRxBuf[MODEM_AT_IRQ_RX_RING_SIZE];
+static struct ring_buf modemAtIrqRxRing;
+static bool modemAtIrqConfigured;
+
+static void modem_at_reset_last_diagnostics(void);
+
+static void modem_at_uart_irq_cb(const struct device *dev, void *user_data)
+{
+	ARG_UNUSED(user_data);
+	uint8_t buf[MODEM_AT_IRQ_RX_CHUNK_SIZE];
+
+	uart_irq_update(dev);
+
+	/* RX: push any arrived bytes into the RX ring. */
+	while (uart_irq_rx_ready(dev)) {
+		int received = uart_fifo_read(dev, buf, sizeof(buf));
+
+		if (received <= 0) {
+			break;
+		}
+
+		(void)ring_buf_put(&modemAtIrqRxRing, buf, (uint32_t)received);
+	}
+}
+
+static int modem_at_uart_irq_init_once(void)
+{
+	if (!device_is_ready(modemUart)) {
+		return -ENODEV;
+	}
+
+	if (!modemAtIrqConfigured) {
+		ring_buf_init(&modemAtIrqRxRing, sizeof(modemAtIrqRxBuf), modemAtIrqRxBuf);
+		uart_irq_callback_user_data_set(modemUart, modem_at_uart_irq_cb, NULL);
+		modemAtIrqConfigured = true;
+	}
+
+	return 0;
+}
+
+void modem_at_uart_irq_rx_enable(void)
+{
+	if (modem_at_uart_irq_init_once() != 0) {
+		return;
+	}
+
+	ring_buf_reset(&modemAtIrqRxRing);
+	uart_irq_rx_enable(modemUart);
+}
+
+void modem_at_uart_irq_rx_disable(void)
+{
+	uart_irq_rx_disable(modemUart);
+	ring_buf_reset(&modemAtIrqRxRing);
+}
+
+uint32_t modem_at_uart_rx_read(uint8_t *buf, size_t size)
+{
+	return ring_buf_get(&modemAtIrqRxRing, buf, (uint32_t)size);
+}
+
+static int modem_at_irq_transport_open(void *ctx, char *response, size_t responseSize)
+{
+	ARG_UNUSED(ctx);
+	ARG_UNUSED(response);
+	ARG_UNUSED(responseSize);
+
+	if (!modem_at_uart_is_ready()) {
+		return -ENODEV;
+	}
+
+	modem_at_uart_irq_rx_enable();
+	return 0;
+}
+
+static void modem_at_irq_transport_close(void *ctx)
+{
+	ARG_UNUSED(ctx);
+	modem_at_uart_irq_rx_disable();
+}
+
+static uint32_t modem_at_irq_transport_read(void *ctx, uint8_t *buf, size_t size)
+{
+	ARG_UNUSED(ctx);
+	return modem_at_uart_rx_read(buf, size);
+}
+
+static const struct modem_at_irq_transport modemAtInternalTransport = {
+	.ctx = NULL,
+	.open = modem_at_irq_transport_open,
+	.close = modem_at_irq_transport_close,
+	.read = modem_at_irq_transport_read,
+};
 
 static void modem_at_reset_last_diagnostics(void)
 {
@@ -56,33 +150,6 @@ const char *modem_at_exit_reason_str(enum modem_at_exit_reason reason)
 	default:
 		return "unknown";
 	}
-}
-
-static void modem_at_flush_rx(void)
-{
-	int64_t deadline = k_uptime_get() + MODEM_AT_PRE_SEND_FLUSH_MS;
-
-	while (k_uptime_get() < deadline) {
-		unsigned char ch;
-		int ret = uart_poll_in(modemUart, &ch);
-		if (ret != 0) {
-			k_msleep(1);
-		}
-	}
-}
-
-static int response_append(char *response, size_t responseSize, size_t *length, unsigned char ch)
-{
-	if (*length + 1U >= responseSize) {
-		lastDiagnostics.exitReason = MODEM_AT_EXIT_BUFFER_FULL;
-		return -ENOSPC;
-	}
-
-	response[*length] = (char)ch;
-	(*length)++;
-	response[*length] = '\0';
-	lastDiagnostics.bytesReceived = *length;
-	return 0;
 }
 
 static void modem_at_irq_debug_log(const struct modem_at_irq_debug *debug, const char *fmt, ...)
@@ -182,6 +249,14 @@ int modem_at_uart_write(const uint8_t *data, size_t length)
 		return -ENODEV;
 	}
 
+	if (modem_at_uart_irq_init_once() != 0) {
+		return -ENODEV;
+	}
+
+	/*
+	 * Keep TX path simple and deterministic for AT commands.
+	 * Commands are short, so poll-out is reliable here.
+	 */
 	for (size_t i = 0; i < length; ++i) {
 		uart_poll_out(modemUart, data[i]);
 	}
@@ -239,88 +314,19 @@ int modem_at_send_irq(const char *command,
 int modem_at_send(const char *command, char *response, size_t responseSize)
 {
 	int ret;
-	size_t length = 0U;
-	int64_t deadline;
-	int64_t interCharDeadline;
-	bool sawAnyByte = false;
-
-	if ((command == NULL) || (response == NULL) || (responseSize == 0U)) {
-		return -EINVAL;
-	}
-
-	if (!device_is_ready(modemUart)) {
-		return -ENODEV;
-	}
 
 	modem_at_reset_last_diagnostics();
-	response[0] = '\0';
-	modem_at_flush_rx();
-
-	for (const char *p = command; *p != '\0'; ++p) {
-		uart_poll_out(modemUart, (unsigned char)*p);
-	}
-	uart_poll_out(modemUart, '\r');
-
-	deadline = k_uptime_get() + MODEM_AT_RESPONSE_TIMEOUT_MS;
-	interCharDeadline = deadline;
-
-	while (k_uptime_get() < deadline) {
-		unsigned char ch;
-		ret = uart_poll_in(modemUart, &ch);
-		lastDiagnostics.lastUartRet = ret;
-		if (ret == 0) {
-			sawAnyByte = true;
-			lastDiagnostics.sawAnyByte = true;
-			interCharDeadline = k_uptime_get() + MODEM_AT_INTER_CHAR_TIMEOUT_MS;
-
-			if (ch == '\r') {
-				continue;
-			}
-
-			ret = response_append(response, responseSize, &length, ch);
-			if (ret != 0) {
-				return ret;
-			}
-
-			if (strstr(response, "\nOK\n") != NULL) {
-				lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_OK;
-				break;
-			}
-
-			if (strstr(response, "\nERROR\n") != NULL) {
-				lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_ERROR;
-				break;
-			}
-		} else if (ret == -1) {
-			if (sawAnyByte && (k_uptime_get() >= interCharDeadline)) {
-				lastDiagnostics.exitReason = MODEM_AT_EXIT_INTER_CHAR_TIMEOUT;
-				break;
-			}
-			k_msleep(10);
-		} else {
-			lastDiagnostics.exitReason = MODEM_AT_EXIT_UART_ERROR;
-			return -EIO;
-		}
-	}
-
-	if (!sawAnyByte) {
+	ret = modem_at_send_irq(command, response, responseSize, &modemAtInternalTransport, NULL);
+	if (ret == 0) {
+		lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_OK;
+		lastDiagnostics.sawAnyByte = true;
+		lastDiagnostics.bytesReceived = (response != NULL) ? strlen(response) : 0U;
+	} else if (ret == -ETIMEDOUT) {
 		lastDiagnostics.exitReason = MODEM_AT_EXIT_OVERALL_TIMEOUT;
-		return -ETIMEDOUT;
+	} else if (ret == -EIO) {
+		lastDiagnostics.exitReason = MODEM_AT_EXIT_MATCH_ERROR;
+		lastDiagnostics.sawAnyByte = true;
 	}
 
-	if (lastDiagnostics.exitReason == MODEM_AT_EXIT_NONE) {
-		lastDiagnostics.exitReason = MODEM_AT_EXIT_OVERALL_TIMEOUT;
-	}
-
-	while ((length > 0U) && ((response[length - 1U] == '\n') || (response[length - 1U] == ' '))) {
-		response[length - 1U] = '\0';
-		length--;
-	}
-
-	while ((response[0] == '\n') || (response[0] == ' ')) {
-		memmove(response, response + 1, strlen(response));
-	}
-
-	lastDiagnostics.bytesReceived = strlen(response);
-	return 0;
+	return ret;
 }

@@ -27,6 +27,7 @@ static bool ppp_test_ready = false;
 #define CONTROL_TLS_SEC_TAG 1
 #define CONTROL_HTTP_TIMEOUT_MS (180 * MSEC_PER_SEC)
 #define CONTROL_HTTP_CHUNK_SIZE 1024U
+#define CONTROL_HTTP_RESPONSE_PREVIEW_MAX 160U
 
 struct upload_progress {
     size_t total_size;
@@ -39,6 +40,10 @@ struct upload_context {
     unsigned int http_status_code;
     bool http_status_logged;
     bool response_complete;
+    size_t response_bytes;
+    size_t response_chunks;
+    char response_preview[CONTROL_HTTP_RESPONSE_PREVIEW_MAX + 1U];
+    size_t response_preview_len;
 };
 
 static size_t normalize_pem_string(const char *src, char *dst, size_t dst_size)
@@ -172,6 +177,30 @@ static bool http_status_is_success(unsigned int status_code)
     return (status_code >= 200U) && (status_code < 300U);
 }
 
+static void append_http_response_preview(struct upload_context *context,
+                                         const uint8_t *data,
+                                         size_t data_len)
+{
+    if ((context == NULL) || (data == NULL) || (data_len == 0U)) {
+        return;
+    }
+
+    const size_t remaining = CONTROL_HTTP_RESPONSE_PREVIEW_MAX - context->response_preview_len;
+    if (remaining == 0U) {
+        return;
+    }
+
+    const size_t copy_len = MIN(remaining, data_len);
+    for (size_t i = 0U; i < copy_len; ++i) {
+        const uint8_t byte = data[i];
+        context->response_preview[context->response_preview_len + i] =
+            ((byte >= 0x20U) && (byte <= 0x7EU)) ? (char)byte : '.';
+    }
+
+    context->response_preview_len += copy_len;
+    context->response_preview[context->response_preview_len] = '\0';
+}
+
 static int response_cb(struct http_response *rsp,
                        enum http_final_call final_data,
                        void *user_data)
@@ -189,16 +218,29 @@ static int response_cb(struct http_response *rsp,
 
     if ((rsp->http_status_code > 0U) &&
         ((context == NULL) || !context->http_status_logged)) {
-        LOG_INF("HTTP Status: %u (%s)",
+        LOG_INF("HTTP status line: %u (%s)",
                 (unsigned int)rsp->http_status_code,
                 rsp->http_status != NULL ? rsp->http_status : "");
+        LOG_INF("HTTP status class: %s",
+                http_status_is_success(rsp->http_status_code) ? "SUCCESS (2xx)" : "FAILURE (non-2xx)");
         if (context != NULL) {
             context->http_status_logged = true;
         }
     }
 
+    if (context != NULL) {
+        context->response_bytes += rsp->data_len;
+        context->response_chunks++;
+        append_http_response_preview(context,
+                                     (const uint8_t *)rsp->body_frag_start,
+                                     rsp->body_frag_len);
+    }
+
     if (final_data == HTTP_DATA_MORE) {
-        LOG_DBG("HTTP response chunk: %u bytes", (unsigned int)rsp->data_len);
+        LOG_INF("HTTP response chunk: data_len=%u body_frag_len=%u total_rx=%u bytes",
+                (unsigned int)rsp->data_len,
+                (unsigned int)rsp->body_frag_len,
+                (unsigned int)((context != NULL) ? context->response_bytes : rsp->processed));
         return 0;
     }
 
@@ -206,9 +248,16 @@ static int response_cb(struct http_response *rsp,
         context->response_complete = true;
     }
 
-    LOG_INF("HTTP response complete: status=%u, total processed=%u bytes",
+    LOG_INF("HTTP response complete: status=%u, chunks=%u, total_rx=%u bytes",
             (unsigned int)rsp->http_status_code,
-            (unsigned int)rsp->processed);
+            (unsigned int)((context != NULL) ? context->response_chunks : 0U),
+            (unsigned int)((context != NULL) ? context->response_bytes : rsp->processed));
+
+    if ((context != NULL) && (context->response_preview_len > 0U)) {
+        LOG_INF("HTTP response preview (%u bytes): %s",
+                (unsigned int)context->response_preview_len,
+                context->response_preview);
+    }
 
     return 0;
 }
@@ -245,62 +294,76 @@ static int payload_cb(int sock, struct http_request *req, void *user_data)
     struct upload_progress *progress = &context->progress;
     const uint8_t *payload = one_month_data;
     const size_t total_size = ONE_MONTH_DATA_SIZE;
+    /*
+     * Assembly buffer: header (max 8 bytes) + chunk payload + CRLF (2 bytes).
+     * Assembled in one contiguous buffer so each chunk is sent as a single
+     * send() call, which maps to exactly ONE TLS record instead of three.
+     * Declared static to avoid consuming 4 KB of the callback's stack frame.
+     */
+    static uint8_t chunkBuf[CONTROL_HTTP_CHUNK_SIZE + 16U]; /* 1024 + header(max 8) + CRLF(2) + margin */
     size_t offset = 0U;
     int total_sent = 0;
+    unsigned int last_logged_pct = 0U;
+    int ret;
+
+    LOG_INF("HTTP upload: %u bytes, chunk_size=%u",
+            (unsigned int)total_size,
+            (unsigned int)CONTROL_HTTP_CHUNK_SIZE);
 
     while (offset < total_size) {
-        char chunk_header[16];
         const size_t chunk_size = MIN(CONTROL_HTTP_CHUNK_SIZE, total_size - offset);
-        const int header_len = snprintk(chunk_header, sizeof(chunk_header), "%zx\r\n", chunk_size);
-        int ret;
 
-        if (header_len <= 0 || header_len >= (int)sizeof(chunk_header)) {
-            LOG_ERR("Failed to build chunk header");
+        /* Build HTTP chunk header into assembly buffer */
+        int header_len = snprintk((char *)chunkBuf, sizeof(chunkBuf), "%zx\r\n", chunk_size);
+
+        if ((header_len <= 0) ||
+            ((size_t)header_len + chunk_size + 2U > sizeof(chunkBuf))) {
+            LOG_ERR("Chunk assembly buffer overflow");
             return -ENOMEM;
         }
 
-        ret = send_buffer_with_retry(sock, chunk_header, (size_t)header_len);
-        if (ret < 0) {
-            LOG_ERR("Failed to send chunk header: %d", ret);
-            return ret;
-        }
+        /* Copy payload immediately after header, append CRLF */
+        memcpy(&chunkBuf[header_len], payload + offset, chunk_size);
+        chunkBuf[header_len + chunk_size]      = '\r';
+        chunkBuf[header_len + chunk_size + 1U] = '\n';
 
-        ret = send_buffer_with_retry(sock, payload + offset, chunk_size);
-        if (ret < 0) {
-            LOG_ERR("Failed to send chunk payload at offset %u: %d",
-                    (unsigned int)offset,
-                    ret);
-            return ret;
-        }
+        const size_t chunk_total = (size_t)header_len + chunk_size + 2U;
 
-        ret = send_buffer_with_retry(sock, "\r\n", 2U);
+        /* Single send() = single TLS record per chunk */
+        ret = send_buffer_with_retry(sock, chunkBuf, chunk_total);
         if (ret < 0) {
-            LOG_ERR("Failed to send chunk terminator: %d", ret);
+            LOG_ERR("Failed to send chunk at offset %u: %d",
+                    (unsigned int)offset, ret);
             return ret;
         }
 
         offset += chunk_size;
         progress->bytes_sent = offset;
         progress->chunks_sent++;
-        total_sent += header_len + (int)chunk_size + 2;
+        total_sent += (int)chunk_total;
 
-        if ((progress->chunks_sent == 1U) ||
-            ((progress->chunks_sent % 16U) == 0U) ||
-            (offset == total_size)) {
-            LOG_INF("Chunk progress: %u/%u bytes, chunk %u",
-                    (unsigned int)progress->bytes_sent,
-                    (unsigned int)progress->total_size,
+        /* Log at 25% milestones and at completion */
+        const unsigned int pct = (unsigned int)((offset * 100U) / total_size);
+
+        if ((offset == total_size) || (pct / 25U > last_logged_pct / 25U)) {
+            LOG_INF("Upload progress: %u/%u bytes (%u%%), chunk %u",
+                    (unsigned int)offset,
+                    (unsigned int)total_size,
+                    pct,
                     (unsigned int)progress->chunks_sent);
+            last_logged_pct = pct;
         }
     }
 
-    if (send_buffer_with_retry(sock, "0\r\n\r\n", 5U) < 0) {
+    ret = send_buffer_with_retry(sock, "0\r\n\r\n", 5U);
+    if (ret < 0) {
         LOG_ERR("Failed to send final chunk terminator");
         return -EIO;
     }
 
-    LOG_INF("Chunked payload transmission complete: %u chunks",
-            (unsigned int)progress->chunks_sent);
+    LOG_INF("Chunked payload transmission complete: %u chunks, %u bytes",
+            (unsigned int)progress->chunks_sent,
+            (unsigned int)progress->bytes_sent);
 
     return total_sent + 5;
 }
@@ -328,6 +391,10 @@ static int test_tcp_socket(void)
         .http_status_code = 0U,
         .http_status_logged = false,
         .response_complete = false,
+        .response_bytes = 0U,
+        .response_chunks = 0U,
+        .response_preview = {0},
+        .response_preview_len = 0U,
     };
     const char *headers[] = {
         "Transfer-Encoding: chunked\r\n",
@@ -422,12 +489,21 @@ static int test_tcp_socket(void)
             CONTROL_HTTP_CHUNK_SIZE,
             sizeof(rx_buf));
 
+    const int64_t requestStartMs = k_uptime_get();
     ret = http_client_req(sock, &req, CONTROL_HTTP_TIMEOUT_MS, &context);
+    const int64_t requestElapsedMs = k_uptime_get() - requestStartMs;
+
     if (ret < 0) {
-        LOG_ERR("http_client_req() failed: %d", ret);
+        LOG_ERR("http_client_req() failed: %d (elapsed=%lld ms)", ret, requestElapsedMs);
         close(sock);
         return ret;
     }
+
+    LOG_INF("HTTP request finished: ret=%d elapsed=%lld ms status=%u (%s)",
+            ret,
+            requestElapsedMs,
+            context.http_status_code,
+            http_status_is_success(context.http_status_code) ? "SUCCESS" : "FAILURE");
 
     if (!context.response_complete) {
         LOG_ERR("HTTP request finished without a complete response");

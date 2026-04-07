@@ -22,7 +22,6 @@
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/shell/shell.h>
-#include <zephyr/sys/ring_buffer.h>
 
 #define MODEM_NET_BOOT_DELAY_MS 10000
 #define MODEM_NET_SYNC_RETRIES 3
@@ -35,8 +34,6 @@
 #define MODEM_NET_CONNECT_WAIT K_SECONDS(60)
 #define MODEM_NET_ESCAPE_GUARD_MS 1200
 #define MODEM_NET_DEFAULT_CONTEXT_ID 1
-#define MODEM_NET_AT_IRQ_RX_RING_SIZE 512
-#define MODEM_NET_AT_IRQ_RX_CHUNK_SIZE 64
 
 MODEM_PPP_DEFINE(modemNetPpp, NULL, 98, 1500, MODEM_NET_PPP_FRAME_BUFFER_SIZE);
 
@@ -44,9 +41,6 @@ static const struct device *const modemUart = DEVICE_DT_GET(DT_NODELABEL(modem_u
 static struct modem_backend_uart modemNetBackend;
 static uint8_t modemNetBackendRxBuffer[MODEM_NET_UART_RX_BUFFER_SIZE];
 static uint8_t modemNetBackendTxBuffer[MODEM_NET_UART_TX_BUFFER_SIZE];
-static uint8_t modemNetAtRxRingBuffer[MODEM_NET_AT_IRQ_RX_RING_SIZE];
-static struct ring_buf modemNetAtRxRing;
-static bool modemNetAtRxIrqConfigured;
 static struct modem_pipe *modemNetPipe;
 static struct net_if *modemNetIface;
 static struct net_mgmt_event_callback modemNetMgmtCb_l2; // PPP 
@@ -74,83 +68,6 @@ static void modem_net_clear_error(void)
 {
 	modemNetLastError = 0;
 	modemNetLastErrorText[0] = '\0';
-}
-
-static void modem_net_uart_rx_irq_cb(const struct device *dev, void *user_data)
-{
-	ARG_UNUSED(user_data);
-
-	uint8_t buffer[MODEM_NET_AT_IRQ_RX_CHUNK_SIZE];
-
-	uart_irq_update(dev);
-
-	while (uart_irq_rx_ready(dev)) {
-		int received = uart_fifo_read(dev, buffer, sizeof(buffer));
-		if (received <= 0) {
-			break;
-		}
-
-		(void)ring_buf_put(&modemNetAtRxRing, buffer, (uint32_t)received);
-	}
-}
-
-static int modem_net_at_rx_prepare(void)
-{
-	if (!device_is_ready(modemUart)) {
-		return -ENODEV;
-	}
-
-	if (!modemNetAtRxIrqConfigured) {
-		ring_buf_init(&modemNetAtRxRing,
-			      sizeof(modemNetAtRxRingBuffer),
-			      modemNetAtRxRingBuffer);
-		uart_irq_callback_user_data_set(modemUart, modem_net_uart_rx_irq_cb, NULL);
-		modemNetAtRxIrqConfigured = true;
-	}
-
-	return 0;
-}
-
-static uint32_t modem_net_uart_rx_read(void *ctx, uint8_t *buffer, size_t bufferSize)
-{
-	ARG_UNUSED(ctx);
-	return ring_buf_get(&modemNetAtRxRing, buffer, bufferSize);
-}
-
-static int modem_net_irq_at_session_open(void *ctx, char *response, size_t responseSize)
-{
-	ARG_UNUSED(ctx);
-	int ret;
-
-	if ((response == NULL) || (responseSize == 0U)) {
-		return -EINVAL;
-	}
-
-	ret = modem_net_at_rx_prepare();
-	if (ret != 0) {
-		return ret;
-	}
-
-	ret = modem_uart_owner_acquire(MODEM_UART_OWNER_AT);
-	if (ret != 0) {
-		return ret;
-	}
-
-	ring_buf_reset(&modemNetAtRxRing);
-	uart_irq_rx_enable(modemUart);
-	response[0] = '\0';
-	return 0;
-}
-
-static void modem_net_irq_at_session_close(void *ctx)
-{
-	ARG_UNUSED(ctx);
-
-	if (modem_uart_owner_get() == MODEM_UART_OWNER_AT) {
-		uart_irq_rx_disable(modemUart);
-		ring_buf_reset(&modemNetAtRxRing);
-		modem_uart_owner_release(MODEM_UART_OWNER_AT);
-	}
 }
 
 static void modem_net_event_handler(struct net_mgmt_event_callback *cb,
@@ -220,14 +137,15 @@ static void modem_net_init_once(void)
 
 static int modem_net_send_at(const char *command, char *response, size_t responseSize)
 {
-	static const struct modem_at_irq_transport transport = {
-		.ctx = NULL,
-		.open = modem_net_irq_at_session_open,
-		.close = modem_net_irq_at_session_close,
-		.read = modem_net_uart_rx_read,
-	};
+	int ret = modem_uart_owner_acquire(MODEM_UART_OWNER_AT);
 
-	return modem_at_send_irq(command, response, responseSize, &transport, NULL);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = modem_at_send(command, response, responseSize);
+	modem_uart_owner_release(MODEM_UART_OWNER_AT);
+	return ret;
 }
 
 static void modem_net_log_at_diagnostics(const struct shell *sh, const char *label, int ret,

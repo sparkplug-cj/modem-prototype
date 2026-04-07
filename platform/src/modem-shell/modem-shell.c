@@ -15,7 +15,6 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
-#include <zephyr/sys/ring_buffer.h>
 
 #define MODEM_PASSTHROUGH_STACK_SIZE 1024
 #define MODEM_PASSTHROUGH_THREAD_PRIORITY 7
@@ -23,7 +22,6 @@
 #define MODEM_PASSTHROUGH_ESCAPE_SUFFIX 0x11u
 #define MODEM_PASSTHROUGH_RX_CHUNK_SIZE 64
 #define MODEM_PASSTHROUGH_RX_TRACE_BUFFER_SIZE (MODEM_PASSTHROUGH_RX_CHUNK_SIZE * 3U + 1U)
-#define MODEM_UART_RX_RING_SIZE 512
 
 static void shell_print_adapter(void *ctx, const char *fmt, ...)
 {
@@ -56,7 +54,6 @@ static void shell_sleep_ms_adapter(int32_t durationMs)
 	k_msleep(durationMs);
 }
 
-static const struct device *const modemUart = DEVICE_DT_GET(DT_NODELABEL(modem_uart));
 static const struct shell *passthroughShell;
 static bool passthroughActive;
 static bool passthroughDebugMode;
@@ -64,31 +61,8 @@ static uint8_t passthroughTail;
 static K_THREAD_STACK_DEFINE(passthroughStack, MODEM_PASSTHROUGH_STACK_SIZE);
 static struct k_thread passthroughThread;
 static bool passthroughThreadStarted;
-static uint8_t modemUartRxRingBuffer[MODEM_UART_RX_RING_SIZE];
-static struct ring_buf modemUartRxRing;
-static bool modemUartRxIrqConfigured;
-static const struct shell *modemAtDebugShell;
 
 static enum modem_uart_owner modemUartRxOwner;
-
-static void modem_uart_rx_irq_cb(const struct device *dev, void *user_data);
-
-static int modem_uart_rx_prepare(void)
-{
-	if (!device_is_ready(modemUart)) {
-		return -ENODEV;
-	}
-
-	if (!modemUartRxIrqConfigured) {
-		ring_buf_init(&modemUartRxRing,
-			      sizeof(modemUartRxRingBuffer),
-			      modemUartRxRingBuffer);
-		uart_irq_callback_user_data_set(modemUart, modem_uart_rx_irq_cb, NULL);
-		modemUartRxIrqConfigured = true;
-	}
-
-	return 0;
-}
 
 int modem_uart_owner_acquire(enum modem_uart_owner owner)
 {
@@ -116,18 +90,13 @@ enum modem_uart_owner modem_uart_owner_get(void)
 
 static int modem_uart_rx_acquire(enum modem_uart_owner owner)
 {
-	int ret = modem_uart_rx_prepare();
+	int ret = modem_uart_owner_acquire(owner);
+
 	if (ret != 0) {
 		return ret;
 	}
 
-	ret = modem_uart_owner_acquire(owner);
-	if (ret != 0) {
-		return ret;
-	}
-
-	ring_buf_reset(&modemUartRxRing);
-	uart_irq_rx_enable(modemUart);
+	modem_at_uart_irq_rx_enable();
 	return 0;
 }
 
@@ -137,56 +106,8 @@ static void modem_uart_rx_release(enum modem_uart_owner owner)
 		return;
 	}
 
-	uart_irq_rx_disable(modemUart);
-	ring_buf_reset(&modemUartRxRing);
+	modem_at_uart_irq_rx_disable();
 	modem_uart_owner_release(owner);
-}
-
-static uint32_t modem_uart_rx_read(void *ctx, uint8_t *buffer, size_t bufferSize)
-{
-	ARG_UNUSED(ctx);
-	return ring_buf_get(&modemUartRxRing, buffer, bufferSize);
-}
-
-static int modem_uart_irq_at_session_open(void *ctx, char *response, size_t responseSize)
-{
-	ARG_UNUSED(ctx);
-
-	if ((response == NULL) || (responseSize == 0U)) {
-		return -EINVAL;
-	}
-
-	int ret = modem_uart_rx_acquire(MODEM_UART_OWNER_AT);
-	if (ret != 0) {
-		return ret;
-	}
-
-	response[0] = '\0';
-	return 0;
-}
-
-static void modem_uart_irq_at_session_close(void *ctx)
-{
-	ARG_UNUSED(ctx);
-	modem_uart_rx_release(MODEM_UART_OWNER_AT);
-}
-
-static void modem_at_debug_log_adapter(void *ctx, const char *fmt, ...)
-{
-	ARG_UNUSED(ctx);
-
-	if (modemAtDebugShell == NULL) {
-		return;
-	}
-
-	char buffer[256];
-	va_list args;
-
-	va_start(args, fmt);
-	vsnprintf(buffer, sizeof(buffer), fmt, args);
-	va_end(args);
-
-	shell_fprintf_normal(modemAtDebugShell, "%s\n", buffer);
 }
 
 static bool modem_shell_at_debug_requested(size_t argc, char **argv)
@@ -218,20 +139,17 @@ static bool modem_shell_at_debug_requested(size_t argc, char **argv)
 	       isspace((unsigned char)raw[strlen("--debug")]);
 }
 
-static int modem_shell_at_send_irq(const char *command, char *response, size_t responseSize)
+static int modem_shell_at_send_owned(const char *command, char *response, size_t responseSize)
 {
-	static const struct modem_at_irq_transport transport = {
-		.ctx = NULL,
-		.open = modem_uart_irq_at_session_open,
-		.close = modem_uart_irq_at_session_close,
-		.read = modem_uart_rx_read,
-	};
-	const struct modem_at_irq_debug debug = {
-		.ctx = NULL,
-		.log = modem_at_debug_log_adapter,
-	};
+	int ret = modem_uart_owner_acquire(MODEM_UART_OWNER_AT);
 
-	return modem_at_send_irq(command, response, responseSize, &transport, &debug);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = modem_at_send(command, response, responseSize);
+	modem_uart_owner_release(MODEM_UART_OWNER_AT);
+	return ret;
 }
 
 static const struct modem_shell_ops shellOps = {
@@ -240,9 +158,9 @@ static const struct modem_shell_ops shellOps = {
 	.modem_board_power_cycle = modem_board_power_cycle,
 	.modem_board_reset_pulse = modem_board_reset_pulse,
 	.modem_board_get_status = modem_board_get_status,
-	.modem_at_send = modem_at_send,
-	.modem_at_send_runtime = modem_shell_at_send_irq,
-	.modem_at_send_power_on = modem_shell_at_send_irq,
+	.modem_at_send = modem_shell_at_send_owned,
+	.modem_at_send_runtime = modem_shell_at_send_owned,
+	.modem_at_send_power_on = modem_shell_at_send_owned,
 	.sleep_ms = shell_sleep_ms_adapter,
 	.print = shell_print_adapter,
 	.error = shell_error_adapter,
@@ -262,7 +180,6 @@ static void modem_passthrough_stop(void)
 	passthroughShell = NULL;
 	passthroughTail = 0U;
 	passthroughDebugMode = false;
-	ring_buf_reset(&modemUartRxRing);
 }
 
 static void modem_passthrough_shell_write(const struct shell *sh, const char *data, size_t length)
@@ -328,24 +245,6 @@ static void modem_passthrough_print_text_chunk(const struct shell *sh, const uin
 	modem_passthrough_shell_write(sh, text, offset);
 }
 
-static void modem_uart_rx_irq_cb(const struct device *dev, void *user_data)
-{
-	ARG_UNUSED(user_data);
-
-	uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
-
-	uart_irq_update(dev);
-
-	while (uart_irq_rx_ready(dev)) {
-		int received = uart_fifo_read(dev, buffer, sizeof(buffer));
-		if (received <= 0) {
-			break;
-		}
-
-		(void)ring_buf_put(&modemUartRxRing, buffer, (uint32_t)received);
-	}
-}
-
 static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 {
 	ARG_UNUSED(arg1);
@@ -359,7 +258,7 @@ static void modem_passthrough_rx_thread(void *arg1, void *arg2, void *arg3)
 		}
 
 		uint8_t buffer[MODEM_PASSTHROUGH_RX_CHUNK_SIZE];
-		uint32_t length = ring_buf_get(&modemUartRxRing, buffer, sizeof(buffer));
+		uint32_t length = modem_at_uart_rx_read(buffer, sizeof(buffer));
 		if (length > 0U) {
 			if (passthroughDebugMode) {
 				modem_passthrough_trace_chunk(passthroughShell, buffer, length);
@@ -452,9 +351,7 @@ static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 	struct modem_shell_ops ops = shellOps;
 	ops.ctx = (void *)sh;
 	ops.modemAtDebug = modem_shell_at_debug_requested(argc, argv);
-	modemAtDebugShell = ops.modemAtDebug ? sh : NULL;
 	int ret = modem_shell_cmd_at_core(&ops, argc, argv);
-	modemAtDebugShell = NULL;
 	return ret;
 }
 
@@ -483,7 +380,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 		return -EHOSTDOWN;
 	}
 
-	if (!modem_at_uart_is_ready() || !device_is_ready(modemUart)) {
+	if (!modem_at_uart_is_ready()) {
 		shell_error(sh, "modem UART device is not ready");
 		return -ENODEV;
 	}
