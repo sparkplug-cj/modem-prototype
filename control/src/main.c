@@ -209,7 +209,7 @@ static void test_tcp_socket(void)
             len = CHUNK;
 
         ret = send(sock, &one_month_txt[offset], len, 0);
-
+        LOG_INF("============== SENT : %d ============================", ret);
         if (ret < 0) {
             LOG_ERR("send() failed at offset %u, errno=%d", offset, errno);
             break;
