@@ -272,11 +272,14 @@ static int send_buffer_with_retry(int sock, const void *buffer, size_t length)
 
         if (ret > 0) {
             offset += (size_t)ret;
+            LOG_INF("============== PARTIAL : %d , length : %d, offset: %d ============================", ret, length, offset);
+
             continue;
         }
 
         if ((ret < 0) && (errno == EAGAIN || errno == ENOMEM)) {
-            k_sleep(K_MSEC(50));
+            k_sleep(K_MSEC(5));
+            LOG_INF("++++++++++++++++RETRY++++++++++++++++++++++");
             continue;
         }
 
