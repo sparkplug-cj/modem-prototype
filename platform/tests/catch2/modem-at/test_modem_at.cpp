@@ -134,6 +134,57 @@ void k_msleep(int32_t ms)
   g_uart.nowMs += ms;
 }
 
+void uart_irq_update(const struct device *dev)
+{
+  (void)dev;
+  // Noop for test
+}
+
+int uart_irq_rx_ready(const struct device *dev)
+{
+  (void)dev;
+  return g_uart.pollIn.empty() ? 0 : 1;
+}
+
+int uart_fifo_read(const struct device *dev, uint8_t *buf, const int size)
+{
+  (void)dev;
+  if (g_uart.pollIn.empty()) {
+    return 0;
+  }
+
+  int read = 0;
+  for (int i = 0; i < size && !g_uart.pollIn.empty(); i++) {
+    const int byte = g_uart.pollIn.front();
+    g_uart.pollIn.pop_front();
+    buf[i] = static_cast<uint8_t>(byte);
+    read++;
+  }
+  return read;
+}
+
+void uart_irq_callback_user_data_set(const struct device *dev,
+                                     uart_irq_callback_user_data_t callback,
+                                     void *user_data)
+{
+  (void)dev;
+  (void)callback;
+  (void)user_data;
+  // Noop for test
+}
+
+void uart_irq_rx_enable(const struct device *dev)
+{
+  (void)dev;
+  // Noop for test
+}
+
+void uart_irq_rx_disable(const struct device *dev)
+{
+  (void)dev;
+  // Noop for test
+}
+
 } // extern "C"
 
 TEST_CASE("modem_at_send_irq rejects invalid arguments", "[modem-at]")

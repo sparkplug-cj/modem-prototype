@@ -4,6 +4,7 @@ add_library(${LIBRARY_NAME_OBJ} OBJECT)
 
 target_include_directories(${LIBRARY_NAME_OBJ} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
+  ${PLATFORM_SRC_DIR}/modem-net
   # ${PLATFORM_SRC_DIR}/modem-at/inc
 )
 

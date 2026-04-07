@@ -1,2 +1,67 @@
 rsource "../common/Kconfig"
 
+menu "Control Application Configuration"
+
+config CONTROL_APN
+	string "APN for modem network connection"
+	default ""
+	help
+	  Access Point Name for the cellular modem.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_APN_USERNAME
+	string "APN authentication username"
+	default ""
+	help
+	  Username for APN authentication.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_APN_PASSWORD
+	string "APN authentication password"
+	default ""
+	help
+	  Password for APN authentication.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_HOST
+	string "TCP/HTTPS server hostname"
+	default ""
+	help
+	  Hostname or IP address of the server endpoint.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_URL
+	string "Server URL path"
+	default ""
+	help
+	  URL path for server requests (e.g., /api/endpoint).
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_SERVER_PORT
+	int "Server port number"
+	default 443
+	help
+	  Port number for the server connection.
+
+config CONTROL_TLS_SERVER_CA_CERT_PEM
+	string "TLS server CA certificate in PEM format"
+	default ""
+	help
+	  PEM-encoded CA certificate used to verify the HTTPS server.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_TLS_MTLS_CLIENT_CERT_PEM
+	string "TLS mTLS client certificate in PEM format"
+	default ""
+	help
+	  PEM-encoded client certificate presented by this device for mutual TLS.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+config CONTROL_TLS_MTLS_PRIVATE_KEY_PEM
+	string "TLS mTLS private key in PEM format"
+	default ""
+	help
+	  PEM-encoded private key paired with the mTLS client certificate.
+	  Set this in prj.secrets.conf to avoid committing credentials.
+
+endmenu
