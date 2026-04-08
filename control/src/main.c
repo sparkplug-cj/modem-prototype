@@ -6,6 +6,7 @@
 #include <zephyr/net/ppp.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
+#include <zephyr/net/net_if.h>
 
 #include <errno.h>
 #include <netdb.h>
@@ -532,7 +533,7 @@ static int test_tcp_socket(void)
     return 0;
 }
 
-
+#include <inttypes.h>
 /* Net management event handler: triggers HTTP upload test when network is ready */
 static void net_event_handler(struct net_mgmt_event_callback *cb,
                               uint64_t mgmt_event,
@@ -541,9 +542,26 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
     ARG_UNUSED(cb);
     ARG_UNUSED(iface);
 
+    switch (mgmt_event)
+    {
+        case NET_EVENT_PPP_PHASE_RUNNING:
+            LOG_INF("Network ready: NET_EVENT_PPP_PHASE_RUNNING 0x%" PRIx64, mgmt_event);
+
+        break;
+        case NET_EVENT_IPV4_ADDR_ADD:
+            LOG_INF("Network ready: NET_EVENT_IPV4_ADDR_ADD 0x%" PRIx64, mgmt_event);
+
+        break;
+        case NET_EVENT_L4_CONNECTED:
+            LOG_INF("Network ready: NET_EVENT_L4_CONNECTED 0x%" PRIx64, mgmt_event);
+        break;
+        default:
+        break; 
+    }
+
     if ((mgmt_event == NET_EVENT_PPP_PHASE_RUNNING ||
-         mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
-         mgmt_event == NET_EVENT_L4_CONNECTED) && !ppp_test_ready) {
+        mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
+        mgmt_event == NET_EVENT_L4_CONNECTED) && !ppp_test_ready) {
         ppp_test_ready = true;
         LOG_INF("Network ready: initiating HTTP upload test");
     }
@@ -576,6 +594,35 @@ int main(void)
     /* Main event loop - send data once when network is ready */
     while (!tcp_test_done) {
         if (ppp_test_ready) {
+
+            
+            struct net_if *iface = net_if_get_default();
+
+            if (!iface) {
+                LOG_ERR("No default net_if");
+            }
+
+
+            if (net_if_is_up(iface)) {
+                LOG_INF("net_if is UP");
+            } else {
+                LOG_INF("net_if is DOWN");
+            }
+
+
+            const struct in_addr *addr;
+
+            addr = net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+
+            if (addr) {
+                char buf[NET_IPV4_ADDR_LEN];
+
+                net_addr_ntop(AF_INET, addr, buf, sizeof(buf));
+                LOG_INF("IPv4 address: %s", buf);
+            } else {
+                LOG_INF("No IPv4 address yet");
+            }
+
             const int uploadStatus = test_tcp_socket();
 
             tcp_test_done = true;
