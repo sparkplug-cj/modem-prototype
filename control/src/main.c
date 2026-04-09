@@ -11,6 +11,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <zephyr/net/conn_mgr_connectivity.h>
+#include "modem-net.h"
+#include "modem-board.h"
+
 
 LOG_MODULE_REGISTER(control_app, LOG_LEVEL_INF);
 
@@ -268,8 +272,50 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
         tcp_test_done = true;
         ppp_test_ready = true;
 
+        net_if_set_default(iface);
+
         LOG_INF("PPP is RUNNING → starting TCP test");
     }
+}
+
+
+static void dump_iface(struct net_if *iface, void *user_data)
+{
+    ARG_UNUSED(user_data);
+
+    char buf[NET_IPV4_ADDR_LEN];
+
+    printk("iface: %s\n", net_if_get_device(iface)->name);
+
+    /* IPv4 address */
+    const struct in_addr *ip =
+        net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+
+    if (ip) {
+        net_addr_ntop(AF_INET, ip, buf, sizeof(buf));
+        printk("  IP      : %s\n", buf);
+    } else {
+        printk("  IP      : (none)\n");
+    }
+
+    /* Gateway */
+    struct in_addr gw = net_if_ipv4_get_gw(iface);
+
+    if (gw.s_addr != 0) {
+        net_addr_ntop(AF_INET, &gw, buf, sizeof(buf));
+        printk("  Gateway : %s\n", buf);
+    } else {
+        printk("  Gateway : (none)\n");
+    }
+
+    printk("\n");
+}
+
+static void dump_ipv4_ifaces(void)
+{
+    printk("=== IPv4 iface info ===\n");
+    net_if_foreach(dump_iface, NULL);
+    printk("=======================\n");
 }
 
 int main(void)
@@ -299,10 +345,77 @@ int main(void)
                                  NET_EVENT_L4_CONNECTED );
     net_mgmt_add_event_callback(&net_cb_l4);
 
+
+    {
+
+        int ret = modem_board_power_on();
+        if (ret) {
+            LOG_ERR("MODEM power on failed: %d", ret);
+            return 0;
+        }
+
+        struct net_if *iface = modem_net_ppp_iface_get();
+
+        if (!iface) {
+            LOG_ERR("PPP iface not available");
+            return 0;
+        }
+
+        struct modem_net_ppp_profile profile = {
+            .apn = CONFIG_CONTROL_APN,
+            .id = CONFIG_CONTROL_APN_USERNAME,
+            .password = CONFIG_CONTROL_APN_PASSWORD,
+        };
+
+        int status = conn_mgr_if_set_opt(iface, MODEM_NET_PPP_OPT_PROFILE, &profile, sizeof(profile));
+        if (status) {
+            LOG_ERR("Failed to set PPP profile: %d", status);
+            return 0;
+        }
+
+        status = conn_mgr_if_connect(iface);
+        if (status) {
+            LOG_ERR("Failed to connect PPP iface: %d", status);
+            return 0;
+        }
+        
+    }
+    
     while (1) {
 
         if(ppp_test_ready)
         {
+
+            dump_ipv4_ifaces();
+            
+            struct net_if *iface = net_if_get_default();
+            
+            if (!iface) {
+                LOG_ERR("No default net_if");
+            }
+
+
+            if (net_if_is_up(iface)) {
+                LOG_INF("net_if is UP");
+            } else {
+                LOG_INF("net_if is DOWN");
+            }
+
+
+            const struct in_addr *addr;
+
+            addr = net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+
+            if (addr) {
+                char buf[NET_IPV4_ADDR_LEN];
+
+                net_addr_ntop(AF_INET, addr, buf, sizeof(buf));
+                LOG_INF("IPv4 address: %s", buf);
+            } else {
+                LOG_INF("No IPv4 address yet");
+            }
+
+
             test_tcp_socket();
         }
         k_sleep(K_SECONDS(1));
