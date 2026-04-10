@@ -14,6 +14,10 @@
 #include <string.h>
 #include <sys/socket.h>
 
+#include <zephyr/net/conn_mgr_connectivity.h>
+#include "modem-net.h"
+#include "modem-board.h"
+
 #include "one_month.h"
 
 LOG_MODULE_REGISTER(control_app, LOG_LEVEL_INF);
@@ -563,6 +567,7 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
         mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
         mgmt_event == NET_EVENT_L4_CONNECTED) && !ppp_test_ready) {
         ppp_test_ready = true;
+        net_if_set_default(iface);
         LOG_INF("Network ready: initiating HTTP upload test");
     }
 }
@@ -591,6 +596,43 @@ int main(void)
                                  NET_EVENT_L4_CONNECTED);
     net_mgmt_add_event_callback(&net_cb_l4);
 
+
+        {
+
+        int ret = modem_board_power_on();
+        if (ret) {
+            LOG_ERR("MODEM power on failed: %d", ret);
+            return 0;
+        }
+
+        struct net_if *iface = modem_net_ppp_iface_get();
+
+        if (!iface) {
+            LOG_ERR("PPP iface not available");
+            return 0;
+        }
+
+        struct modem_net_ppp_profile profile = {
+            .apn = CONFIG_CONTROL_APN,
+            .id = CONFIG_CONTROL_APN_USERNAME,
+            .password = CONFIG_CONTROL_APN_PASSWORD,
+        };
+
+        int status = conn_mgr_if_set_opt(iface, MODEM_NET_PPP_OPT_PROFILE, &profile, sizeof(profile));
+        if (status) {
+            LOG_ERR("Failed to set PPP profile: %d", status);
+            return 0;
+        }
+
+        status = conn_mgr_if_connect(iface);
+        if (status) {
+            LOG_ERR("Failed to connect PPP iface: %d", status);
+            return 0;
+        }
+        
+    }
+    
+    
     /* Main event loop - send data once when network is ready */
     while (!tcp_test_done) {
         if (ppp_test_ready) {
