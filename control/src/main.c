@@ -262,19 +262,21 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
                               struct net_if *iface)
 {
     ARG_UNUSED(cb);
-    ARG_UNUSED(iface);
 
-    if ((mgmt_event == NET_EVENT_PPP_PHASE_RUNNING ||
-         mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
-         mgmt_event == NET_EVENT_L4_CONNECTED ) && !tcp_test_done) 
+    if ((mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
+         mgmt_event == NET_EVENT_L4_CONNECTED) && !tcp_test_done) 
     {
+        const char *trigger =
+            (mgmt_event == NET_EVENT_IPV4_ADDR_ADD) ? "IPv4 address assigned" :
+            (mgmt_event == NET_EVENT_L4_CONNECTED) ? "L4 connected" :
+            "unknown";
 
         tcp_test_done = true;
         ppp_test_ready = true;
 
         net_if_set_default(iface);
 
-        LOG_INF("PPP is RUNNING → starting TCP test");
+        LOG_INF("%s -> starting TCP test", trigger);
     }
 }
 

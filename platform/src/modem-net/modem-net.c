@@ -323,7 +323,8 @@ static void modem_net_conn_mgr_connect_work_handler(struct k_work *work)
 	if (ret == -ETIMEDOUT) {
 		net_mgmt_event_notify(NET_EVENT_CONN_IF_TIMEOUT, binding->iface);
 	} else if ((ret != 0) && (ret != -EBUSY)) {
-		net_mgmt_event_notify(NET_EVENT_CONN_IF_FATAL_ERROR, binding->iface);
+		net_mgmt_event_notify_with_info(NET_EVENT_CONN_IF_FATAL_ERROR,
+					       binding->iface, &ret, sizeof(ret));
 	}
 }
 
@@ -763,7 +764,7 @@ static int modem_net_attach_ppp(void)
 	}
 
 	net_if_carrier_on(modemNetIface);
-	return net_if_up(modemNetIface);
+	return 0;// it's done in conn_mgr_if_connect()     net_if_up(modemNetIface);
 }
 
 struct net_if *modem_net_ppp_iface_get(void)
@@ -931,6 +932,8 @@ static void ppp_net_if_init(struct conn_mgr_conn_binding *const binding)
 	ctx->iface = binding->iface;
 	modemNetConnBinding = binding;
 	modemNetIface = binding->iface;
+	conn_mgr_binding_set_flag(binding, CONN_MGR_IF_NO_AUTO_CONNECT, true);
+	conn_mgr_binding_set_flag(binding, CONN_MGR_IF_NO_AUTO_DOWN, true);
 }
 
 static int ppp_net_connect(struct conn_mgr_conn_binding *const binding)
