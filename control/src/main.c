@@ -278,6 +278,7 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
 
         case NET_EVENT_L4_CONNECTED:
             LOG_INF("Network ready: NET_EVENT_L4_CONNECTED 0x%" PRIx64, mgmt_event);
+            tcp_test_done = false; // rerun tcp test when L4 connected
         break;
 
         case NET_EVENT_L4_DISCONNECTED:
@@ -307,44 +308,6 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
 }
 
 
-// static void dump_iface(struct net_if *iface, void *user_data)
-// {
-//     ARG_UNUSED(user_data);
-
-//     char buf[NET_IPV4_ADDR_LEN];
-
-//     printk("iface: %s\n", net_if_get_device(iface)->name);
-
-//     /* IPv4 address */
-//     const struct in_addr *ip =
-//         net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
-
-//     if (ip) {
-//         net_addr_ntop(AF_INET, ip, buf, sizeof(buf));
-//         printk("  IP      : %s\n", buf);
-//     } else {
-//         printk("  IP      : (none)\n");
-//     }
-
-//     /* Gateway */
-//     struct in_addr gw = net_if_ipv4_get_gw(iface);
-
-//     if (gw.s_addr != 0) {
-//         net_addr_ntop(AF_INET, &gw, buf, sizeof(buf));
-//         printk("  Gateway : %s\n", buf);
-//     } else {
-//         printk("  Gateway : (none)\n");
-//     }
-
-//     printk("\n");
-// }
-
-// static void dump_ipv4_ifaces(void)
-// {
-//     printk("=== IPv4 iface info ===\n");
-//     net_if_foreach(dump_iface, NULL);
-//     printk("=======================\n");
-// }
 
 int main(void)
 {
@@ -431,18 +394,13 @@ int main(void)
                     return 0;   
                 }
                 k_sleep(K_SECONDS(10));
-                // status = conn_mgr_if_connect(iface);
-                // if (status) {
-                //     LOG_ERR("Failed to reconnect PPP iface: %d", status);
-                //     return 0;
-                // }
-                // k_sleep(K_SECONDS(1));
-
-
+                status = conn_mgr_if_connect(iface);
+                if (status) {
+                    LOG_ERR("Failed to reconnect PPP iface: %d", status);
+                    return 0;
+                }
+                k_sleep(K_SECONDS(1));
             }
-
-
-
         }
         k_sleep(K_SECONDS(1));
     }

@@ -66,6 +66,7 @@ static int ppp_net_if_set_opt(struct conn_mgr_conn_binding *const binding, int o
 			      const void *optval, size_t optlen);
 
 static void modem_net_irq_at_session_close(void *ctx);
+static void modem_net_reset_at_transport(void);
 
 
 static struct conn_mgr_conn_api ppp_conn_mgr_api = {
@@ -106,6 +107,7 @@ static struct conn_mgr_conn_binding *modemNetConnBinding;
 static struct k_work_q modemNetConnMgrWorkQ;
 static K_THREAD_STACK_DEFINE(modemNetConnMgrWorkQStack, MODEM_NET_CONN_MGR_STACK_SIZE);
 static bool modemNetConnMgrWorkQStarted;
+static bool modemNetManualAttachNeedsIfUp;
 
 static void modem_net_conn_mgr_connect_work_handler(struct k_work *work);
 static void modem_net_conn_mgr_disconnect_work_handler(struct k_work *work);
@@ -213,13 +215,19 @@ static int modem_net_wait_for_network_with_timeout(int timeoutSeconds)
 	return 0;
 }
 
+static void modem_net_reset_at_transport(void)
+{
+	modem_net_irq_at_session_close(NULL);
+	ring_buf_reset(&modemNetAtRxRing);
+	k_msleep(20);
+}
+
 static int modem_net_conn_mgr_connect_locked(struct modem_net_conn_mgr_ctx *ctx, int timeoutSeconds)
 {
-	/* --- AT transport hard reset before reconnect --- */
-	modem_net_irq_at_session_close(NULL);   // RX IRQ disable + owner release
-	ring_buf_reset(&modemNetAtRxRing);      // AT RX buffer flush
-	k_msleep(20);                           // IRQ settle 
-
+	/* Ensure the IRQ-based AT transport starts from a clean state before
+	 * running the reconnect command sequence.
+	 */
+	modem_net_reset_at_transport();
 
 	struct modem_net_ops ops = modem_net_make_ops(NULL);
 	const char *failedStage = NULL;
@@ -384,7 +392,6 @@ static int modem_net_at_rx_prepare(void)
 		ring_buf_init(&modemNetAtRxRing,
 			      sizeof(modemNetAtRxRingBuffer),
 			      modemNetAtRxRingBuffer);
-		uart_irq_callback_user_data_set(modemUart, modem_net_uart_rx_irq_cb, NULL);
 		modemNetAtRxIrqConfigured = true;
 	}
 
@@ -416,6 +423,7 @@ static int modem_net_irq_at_session_open(void *ctx, char *response, size_t respo
 		return ret;
 	}
 
+	uart_irq_callback_user_data_set(modemUart, modem_net_uart_rx_irq_cb, NULL);
 	ring_buf_reset(&modemNetAtRxRing);
 	uart_irq_rx_enable(modemUart);
 	response[0] = '\0';
@@ -779,6 +787,16 @@ static int modem_net_attach_ppp(void)
 		return -ENODEV;
 	}
 
+	/* Shell/manual connect does not go through conn_mgr, so it must raise the
+	 * iface admin state itself. conn_mgr-driven connect already owns net_if_up().
+	 */
+	if (modemNetManualAttachNeedsIfUp && !net_if_is_admin_up(modemNetIface)) {
+		ret = net_if_up(modemNetIface);
+		if (ret != 0) {
+			return ret;
+		}
+	}
+
 	net_if_carrier_on(modemNetIface);
 	return 0;// it's done in conn_mgr_if_connect()     net_if_up(modemNetIface);
 }
@@ -1075,8 +1093,11 @@ int cmd_modem_ppp_connect(const struct shell *sh, size_t argc, char **argv)
 
 	modem_net_init_once();
 	k_mutex_lock(&modemNetLock, K_FOREVER);
+	modem_net_reset_at_transport();
+	modemNetManualAttachNeedsIfUp = true;
 	ops = modem_net_make_ops(sh);
 	ret = modem_net_cmd_connect_core(&ops, argc, argv);
+	modemNetManualAttachNeedsIfUp = false;
 	k_mutex_unlock(&modemNetLock);
 	return ret;
 }

@@ -83,7 +83,6 @@ static int modem_uart_rx_prepare(void)
 		ring_buf_init(&modemUartRxRing,
 			      sizeof(modemUartRxRingBuffer),
 			      modemUartRxRingBuffer);
-		uart_irq_callback_user_data_set(modemUart, modem_uart_rx_irq_cb, NULL);
 		modemUartRxIrqConfigured = true;
 	}
 
@@ -126,6 +125,7 @@ static int modem_uart_rx_acquire(enum modem_uart_owner owner)
 		return ret;
 	}
 
+	uart_irq_callback_user_data_set(modemUart, modem_uart_rx_irq_cb, NULL);
 	ring_buf_reset(&modemUartRxRing);
 	uart_irq_rx_enable(modemUart);
 	return 0;
