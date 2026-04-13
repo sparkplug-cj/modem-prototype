@@ -36,7 +36,7 @@
 #define MODEM_NET_PIPE_WAIT K_SECONDS(2)
 #define MODEM_NET_DIAL_WAIT K_SECONDS(20)
 #define MODEM_NET_CONNECT_WAIT K_SECONDS(60)
-#define MODEM_NET_ESCAPE_GUARD_MS 1200
+#define MODEM_NET_ESCAPE_GUARD_MS 2000
 #define MODEM_NET_DEFAULT_CONTEXT_ID 1
 #define MODEM_NET_AT_IRQ_RX_RING_SIZE 512
 #define MODEM_NET_AT_IRQ_RX_CHUNK_SIZE 64
@@ -64,6 +64,9 @@ static int ppp_net_if_get_opt(struct conn_mgr_conn_binding *const binding, int o
 			      void *optval, size_t *optlen);
 static int ppp_net_if_set_opt(struct conn_mgr_conn_binding *const binding, int optname,
 			      const void *optval, size_t optlen);
+
+static void modem_net_irq_at_session_close(void *ctx);
+
 
 static struct conn_mgr_conn_api ppp_conn_mgr_api = {
 	.init = ppp_net_if_init,
@@ -212,6 +215,12 @@ static int modem_net_wait_for_network_with_timeout(int timeoutSeconds)
 
 static int modem_net_conn_mgr_connect_locked(struct modem_net_conn_mgr_ctx *ctx, int timeoutSeconds)
 {
+	/* --- AT transport hard reset before reconnect --- */
+	modem_net_irq_at_session_close(NULL);   // RX IRQ disable + owner release
+	ring_buf_reset(&modemNetAtRxRing);      // AT RX buffer flush
+	k_msleep(20);                           // IRQ settle 
+
+
 	struct modem_net_ops ops = modem_net_make_ops(NULL);
 	const char *failedStage = NULL;
 	struct modem_net_profile prof = {
@@ -591,6 +600,8 @@ static int modem_net_ensure_powered(void *ctx)
 	return modem_net_sync_and_disable_sleep(sh);
 }
 
+static bool modem_cold_initialized = false;
+
 static int modem_net_configure_context(void *ctx, const struct modem_net_profile *prof)
 {
 	const struct shell *sh = ctx;
@@ -603,35 +614,40 @@ static int modem_net_configure_context(void *ctx, const struct modem_net_profile
 		return -EINVAL;
 	}
 
-    modem_net_maybe_shell_print(sh, "Resetting network stack (CFUN=4)...");
-    ret = modem_net_send_at("AT+CFUN=4", response, sizeof(response));	
-    modem_net_maybe_shell_print(sh, ":CFUN=4: (%s)", (ret == 0) ? response : "FAIL");
+	if(!modem_cold_initialized)
+	{
+		modem_net_maybe_shell_print(sh, "Resetting network stack (CFUN=4)...");
+		ret = modem_net_send_at("AT+CFUN=4", response, sizeof(response));	
+		modem_net_maybe_shell_print(sh, ":CFUN=4: (%s)", (ret == 0) ? response : "FAIL");
 
-    modem_net_maybe_shell_print(sh, "Pre-activating network (CFUN=1)...");
-    ret = modem_net_send_at("AT+CFUN=1", response, sizeof(response));
-    modem_net_maybe_shell_print(sh, ":CFUN=1: (%s)", (ret == 0) ? response : "FAIL");
+		modem_net_maybe_shell_print(sh, "Pre-activating network (CFUN=1)...");
+		ret = modem_net_send_at("AT+CFUN=1", response, sizeof(response));
+		modem_net_maybe_shell_print(sh, ":CFUN=1: (%s)", (ret == 0) ? response : "FAIL");
 
-	modem_net_maybe_shell_print(sh, "Enabling verbose modem error reporting (CMEE=1)...");
-	ret = modem_net_send_at("AT+CMEE=1", response, sizeof(response));
-	modem_net_maybe_shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
+		modem_net_maybe_shell_print(sh, "Enabling verbose modem error reporting (CMEE=1)...");
+		ret = modem_net_send_at("AT+CMEE=1", response, sizeof(response));
+		modem_net_maybe_shell_print(sh, ":CMEE=0: (%s)", (ret == 0) ? response : "FAIL");
 
-	snprintk(command, sizeof(command), "AT+CGDCONT=%d,\"IP\",\"%s\"",
-			MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn);
-	modem_net_maybe_shell_print(sh, "Configuring PDP context (%s)...", prof->apn);
-	ret = modem_net_send_at(command, response, sizeof(response));
-	if (ret != 0) {
-		return ret;
+		snprintk(command, sizeof(command), "AT+CGDCONT=%d,\"IP\",\"%s\"",
+				MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn);
+		modem_net_maybe_shell_print(sh, "Configuring PDP context (%s)...", prof->apn);
+		ret = modem_net_send_at(command, response, sizeof(response));
+		if (ret != 0) {
+			return ret;
+		}
+
+		// ID/Password = a/b
+		snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",\"%s\",\"%s\",\"IPV4\"",
+				MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn, prof->id, prof->password);
+		
+		modem_net_maybe_shell_print(sh, "Configuring Connection Profile (Reference Style)...");
+		ret = modem_net_send_at(command, response, sizeof(response));
+		if (ret != 0) {
+			return ret;
+		}
+
+		modem_cold_initialized = true;
 	}
-
-	// ID/Password = a/b
-    snprintk(command, sizeof(command), "AT+KCNXCFG=%d,\"GPRS\",\"%s\",\"%s\",\"%s\",\"IPV4\"",
-             MODEM_NET_DEFAULT_CONTEXT_ID, prof->apn, prof->id, prof->password);
-    
-	modem_net_maybe_shell_print(sh, "Configuring Connection Profile (Reference Style)...");
-    ret = modem_net_send_at(command, response, sizeof(response));
-    if (ret != 0) {
-        return ret;
-    }
 	
 	ret = modem_net_send_at("AT+WPPP=0", response, sizeof(response));
 	modem_net_maybe_shell_print(sh, ":WPPP=0: (%s)", (ret == 0) ? response : "FAIL");

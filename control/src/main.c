@@ -251,6 +251,7 @@ static void test_tcp_socket(void)
     }
 
     close(sock);
+    k_sleep(K_SECONDS(2));
     ppp_test_ready = false;
 
     LOG_INF("TCP upload test done");
@@ -262,6 +263,31 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
                               struct net_if *iface)
 {
     ARG_UNUSED(cb);
+
+    switch (mgmt_event)
+    {
+        case NET_EVENT_PPP_PHASE_RUNNING:
+            LOG_INF("Network ready: NET_EVENT_PPP_PHASE_RUNNING 0x%" PRIx64, mgmt_event);
+
+        break;
+
+        case NET_EVENT_IPV4_ADDR_ADD:
+            LOG_INF("Network ready: NET_EVENT_IPV4_ADDR_ADD 0x%" PRIx64, mgmt_event);
+
+        break;
+
+        case NET_EVENT_L4_CONNECTED:
+            LOG_INF("Network ready: NET_EVENT_L4_CONNECTED 0x%" PRIx64, mgmt_event);
+        break;
+
+        case NET_EVENT_L4_DISCONNECTED:
+            LOG_INF("Network event: NET_EVENT_L4_DISCONNECTED 0x%" PRIx64, mgmt_event);    
+        break;
+
+        default:
+        break; 
+    }
+
 
     if ((mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
          mgmt_event == NET_EVENT_L4_CONNECTED) && !tcp_test_done) 
@@ -281,44 +307,44 @@ static void net_event_handler(struct net_mgmt_event_callback *cb,
 }
 
 
-static void dump_iface(struct net_if *iface, void *user_data)
-{
-    ARG_UNUSED(user_data);
+// static void dump_iface(struct net_if *iface, void *user_data)
+// {
+//     ARG_UNUSED(user_data);
 
-    char buf[NET_IPV4_ADDR_LEN];
+//     char buf[NET_IPV4_ADDR_LEN];
 
-    printk("iface: %s\n", net_if_get_device(iface)->name);
+//     printk("iface: %s\n", net_if_get_device(iface)->name);
 
-    /* IPv4 address */
-    const struct in_addr *ip =
-        net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
+//     /* IPv4 address */
+//     const struct in_addr *ip =
+//         net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
 
-    if (ip) {
-        net_addr_ntop(AF_INET, ip, buf, sizeof(buf));
-        printk("  IP      : %s\n", buf);
-    } else {
-        printk("  IP      : (none)\n");
-    }
+//     if (ip) {
+//         net_addr_ntop(AF_INET, ip, buf, sizeof(buf));
+//         printk("  IP      : %s\n", buf);
+//     } else {
+//         printk("  IP      : (none)\n");
+//     }
 
-    /* Gateway */
-    struct in_addr gw = net_if_ipv4_get_gw(iface);
+//     /* Gateway */
+//     struct in_addr gw = net_if_ipv4_get_gw(iface);
 
-    if (gw.s_addr != 0) {
-        net_addr_ntop(AF_INET, &gw, buf, sizeof(buf));
-        printk("  Gateway : %s\n", buf);
-    } else {
-        printk("  Gateway : (none)\n");
-    }
+//     if (gw.s_addr != 0) {
+//         net_addr_ntop(AF_INET, &gw, buf, sizeof(buf));
+//         printk("  Gateway : %s\n", buf);
+//     } else {
+//         printk("  Gateway : (none)\n");
+//     }
 
-    printk("\n");
-}
+//     printk("\n");
+// }
 
-static void dump_ipv4_ifaces(void)
-{
-    printk("=== IPv4 iface info ===\n");
-    net_if_foreach(dump_iface, NULL);
-    printk("=======================\n");
-}
+// static void dump_ipv4_ifaces(void)
+// {
+//     printk("=== IPv4 iface info ===\n");
+//     net_if_foreach(dump_iface, NULL);
+//     printk("=======================\n");
+// }
 
 int main(void)
 {
@@ -344,7 +370,8 @@ int main(void)
         // 3. L4 (Socket)
     net_mgmt_init_event_callback(&net_cb_l4,
                                  net_event_handler,
-                                 NET_EVENT_L4_CONNECTED );
+                                 NET_EVENT_L4_CONNECTED |
+                                 NET_EVENT_L4_DISCONNECTED);
     net_mgmt_add_event_callback(&net_cb_l4);
 
 
@@ -388,37 +415,34 @@ int main(void)
         if(ppp_test_ready)
         {
 
-            dump_ipv4_ifaces();
-            
-            struct net_if *iface = net_if_get_default();
-            
-            if (!iface) {
-                LOG_ERR("No default net_if");
-            }
-
-
-            if (net_if_is_up(iface)) {
-                LOG_INF("net_if is UP");
-            } else {
-                LOG_INF("net_if is DOWN");
-            }
-
-
-            const struct in_addr *addr;
-
-            addr = net_if_ipv4_get_global_addr(iface, NET_ADDR_PREFERRED);
-
-            if (addr) {
-                char buf[NET_IPV4_ADDR_LEN];
-
-                net_addr_ntop(AF_INET, addr, buf, sizeof(buf));
-                LOG_INF("IPv4 address: %s", buf);
-            } else {
-                LOG_INF("No IPv4 address yet");
-            }
-
-
             test_tcp_socket();
+
+            if(ppp_test_ready == false) // ppp test is done
+            {
+                // disconnect and connect again to test multiple times
+                struct net_if *iface = net_if_get_default();
+                if (!iface) {
+                    LOG_ERR("No default net_if");
+                    return 0;
+                }
+                int status = conn_mgr_if_disconnect(iface);
+                if (status) {
+                    LOG_ERR("Failed to disconnect PPP iface: %d", status);
+                    return 0;   
+                }
+                k_sleep(K_SECONDS(10));
+                // status = conn_mgr_if_connect(iface);
+                // if (status) {
+                //     LOG_ERR("Failed to reconnect PPP iface: %d", status);
+                //     return 0;
+                // }
+                // k_sleep(K_SECONDS(1));
+
+
+            }
+
+
+
         }
         k_sleep(K_SECONDS(1));
     }
