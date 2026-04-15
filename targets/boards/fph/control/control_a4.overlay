@@ -20,6 +20,8 @@
   aliases {
     watchdog0 = &wdog0;
     eeprom-0 = &eeprom0;
+    modem-uart = &lpuart3; 
+		modem = &modem;
   };
 
   // TODO See if it's appropriate to choose these in targets repo.
@@ -280,7 +282,6 @@
     output-low;
   };
 };
-
 
 &gpio2 {
   // MODEM_PWR_ON_N (PWER_ON_N) at the modem is active low, but MCU control is active high via an inverting NPN stage
@@ -648,6 +649,19 @@ modem_uart: &lpuart3 {
   pinctrl-0 = <&pinmux_lpuart3>;
   pinctrl-names = "default";
   hw-flow-control;
+
+  modem: modem {
+    /* RC7620-1 is integrated through the HL7800-compatible binding path. */
+    compatible = "swir,hl7800";
+    status = "okay";
+    /* The generic cellular driver owns the actual MODEM_PWR_ON pulse line. */
+    mdm-power-gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>;
+    /*
+     * Expose only the real reset input to the generic cellular driver.
+     * Board-specific 3V8 rail enable stays in modem-board.
+     */
+    mdm-reset-gpios = <&gpio4 9 GPIO_ACTIVE_HIGH>;
+  };
 };
 
 &adc1 {

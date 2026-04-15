@@ -23,6 +23,7 @@ pip install -U pip west pyelftools
 ```
 
 Notes:
+
 - `pyelftools` is required for Zephyr’s `gen_kobject_list.py`.
 
 ## One-time setup
@@ -50,7 +51,32 @@ west build control -p auto -b control@a4 --shield sense_a3 -d control/build
 ```
 
 Notes:
+
 - You do **not** need to export `BOARD_ROOT`/`DTS_ROOT` env vars; the repo CMake wiring sets the required roots.
+- If you need local-only Kconfig overrides, create `control/prj.secrets.conf`. The build will include it when explicitly requested and will otherwise continue without it.
+
+## Modem shell
+
+Commands:
+
+- `modem at [--debug] <command>` — send AT commands
+- `modem status` — print board-level modem GPIO and VGPIO state
+- `modem reset` — pulse the modem reset line
+- `modem dns <host>` — bring PPP up if needed, then resolve one hostname and print raw DNS results
+- `modem post <host> <port> <path> [payload]` — bring PPP up if needed, then send a verified-TLS HTTPS POST
+- `modem passthrough [--debug]` — raw UART passthrough to the modem
+
+For secure `modem post`, keep the trust anchor out of git by creating `control/prj.secrets.conf` locally with:
+
+```conf
+CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM="-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+```
+
+Use escaped newlines in the PEM string. The existing VS Code build tasks already include `control/prj.secrets.conf` when it exists; for manual builds, pass `-- -DEXTRA_CONF_FILE=prj.secrets.conf`.
+
+Usage guide:
+
+- `docs/bringup/modem-at-passthrough.md`
 
 ## Tests
 

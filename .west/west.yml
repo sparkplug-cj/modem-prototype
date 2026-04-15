@@ -23,6 +23,7 @@ manifest:
         name-allowlist:
           - cmsis_6
           - hal_nxp
+          - mbedtls
           - picolibc
           - segger
 

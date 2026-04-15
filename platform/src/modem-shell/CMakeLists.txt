@@ -15,6 +15,7 @@ target_sources(${LIBRARY_NAME_OBJ} PRIVATE
 target_link_libraries(${LIBRARY_NAME_OBJ} INTERFACE zephyr_interface)
 target_link_libraries(${LIBRARY_NAME_OBJ} PRIVATE platform_src_modem_board)
 target_link_libraries(${LIBRARY_NAME_OBJ} PRIVATE platform_src_modem_at)
+target_link_libraries(${LIBRARY_NAME_OBJ} PRIVATE platform_src_modem_link)
 
 mark_zephyr_system_includes(${LIBRARY_NAME_OBJ})
 add_dependencies(${LIBRARY_NAME_OBJ} zephyr_generated_headers)

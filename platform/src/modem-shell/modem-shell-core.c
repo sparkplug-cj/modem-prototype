@@ -2,12 +2,15 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define MODEM_AT_SYNC_RETRIES 3
 #define MODEM_AT_BOOT_DELAY_MS 10000
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
+#define MODEM_POST_DEFAULT_PAYLOAD "hello world"
+#define MODEM_POST_MAX_PAYLOAD_BYTES 512
 
 typedef int (*modem_shell_at_send_fn_t)(const char *command, char *response, size_t responseSize);
 
@@ -115,6 +118,46 @@ static char *modem_shell_parse_at_command(size_t argc, char **argv, bool *debugE
 	command = modem_shell_trim_leading_spaces(command);
 
 	return (*command == '\0') ? NULL : command;
+}
+
+static bool modem_shell_parse_port(const char *text)
+{
+	char *end = NULL;
+	long value;
+
+	if ((text == NULL) || (*text == '\0')) {
+		return false;
+	}
+
+	errno = 0;
+	value = strtol(text, &end, 10);
+	if ((errno != 0) || (end == text) || (*end != '\0')) {
+		return false;
+	}
+
+	return (value > 0L) && (value <= 65535L);
+}
+
+static const char *modem_shell_post_error_reason(int ret)
+{
+	switch (ret) {
+	case -ENODEV:
+		return "PPP interface not found";
+	case -ETIMEDOUT:
+		return "PPP link timeout (120s)";
+	case -EHOSTUNREACH:
+		return "DNS resolve failed or host unreachable";
+	case -ECONNREFUSED:
+		return "TLS connect or handshake failed";
+	case -ENOTSUP:
+		return "verified TLS is not configured (missing CA certificate)";
+	case -EBADMSG:
+		return "HTTP response has no status code";
+	case -EIO:
+		return "HTTP request failed or returned non-2xx status";
+	default:
+		return "unexpected transport error";
+	}
 }
 
 static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops *ops)
@@ -324,5 +367,108 @@ int modem_shell_cmd_at_core(const struct modem_shell_ops *ops, size_t argc, char
 	} else {
 		ops->print(ops->ctx, "%s", response);
 	}
+	return 0;
+}
+
+int modem_shell_cmd_post_core(const struct modem_shell_ops *ops, size_t argc, char **argv)
+{
+	struct modem_shell_http_post_request request;
+	struct modem_shell_http_post_result result;
+	char *payloadArg = NULL;
+	int ret;
+
+	if ((ops == NULL) || (ops->error == NULL) || (ops->print == NULL)) {
+		return -EINVAL;
+	}
+
+	if (ops->https_post == NULL) {
+		ops->error(ops->ctx, "HTTPS POST backend is not configured");
+		return -ENOSYS;
+	}
+
+	if ((argc > 1U) && (strcmp(argv[1], "--insecure") == 0)) {
+		ops->error(ops->ctx, "HTTPS POST always uses verified TLS; remove --insecure");
+		return -EINVAL;
+	}
+
+	if (argc < 4U) {
+		ops->error(ops->ctx,
+			   "usage: post <host> <port> <path> [payload]");
+		return -EINVAL;
+	}
+
+	if (!modem_shell_parse_port(argv[2])) {
+		ops->error(ops->ctx, "invalid port: %s", argv[2]);
+		return -EINVAL;
+	}
+
+	if ((argv[3] == NULL) || (argv[3][0] != '/')) {
+		ops->error(ops->ctx, "path must start with '/'");
+		return -EINVAL;
+	}
+
+	if (argc > 4U) {
+		payloadArg = modem_shell_trim_matching_quotes(argv[4]);
+		payloadArg = modem_shell_trim_leading_spaces(payloadArg);
+	}
+
+	if ((payloadArg == NULL) || (*payloadArg == '\0')) {
+		payloadArg = (char *)MODEM_POST_DEFAULT_PAYLOAD;
+	}
+
+	if (strlen(payloadArg) > MODEM_POST_MAX_PAYLOAD_BYTES) {
+		ops->error(ops->ctx,
+			   "payload too large (max %u bytes, got %u)",
+			   (unsigned int)MODEM_POST_MAX_PAYLOAD_BYTES,
+			   (unsigned int)strlen(payloadArg));
+		return -EINVAL;
+	}
+
+	memset(&request, 0, sizeof(request));
+	request.host = argv[1];
+	request.port = argv[2];
+	request.path = argv[3];
+	request.payload = (const uint8_t *)payloadArg;
+	request.payloadLen = strlen(payloadArg);
+
+	memset(&result, 0, sizeof(result));
+	ret = ops->https_post(&request, &result);
+	if (ret != 0) {
+		if ((ret == -EHOSTUNREACH) &&
+		    ((result.dnsResolveStatus != 0) || (result.dnsResolveErrno != 0))) {
+			ops->error(ops->ctx,
+			  "HTTPS POST failed: %d (%s; getaddrinfo=%d errno=%d dns_timeout_ms=%d)",
+			  ret,
+			  modem_shell_post_error_reason(ret),
+			  result.dnsResolveStatus,
+			  result.dnsResolveErrno,
+			  result.dnsResolveTimeoutMs);
+			return ret;
+		}
+
+		if (ret == -ENOTSUP) {
+			ops->error(ops->ctx,
+			   "HTTPS POST secure TLS is not configured (set CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM in control/prj.secrets.conf)");
+			return ret;
+		}
+
+		ops->error(ops->ctx, "HTTPS POST failed: %d (%s)", ret,
+			  modem_shell_post_error_reason(ret));
+		return ret;
+	}
+
+	if (result.responsePreview[0] != '\0') {
+		ops->print(ops->ctx,
+			   "HTTPS POST OK status=%d bytes=%u preview=%s",
+			   result.httpStatusCode,
+			   (unsigned int)result.responseBytes,
+			   result.responsePreview);
+	} else {
+		ops->print(ops->ctx,
+			   "HTTPS POST OK status=%d bytes=%u",
+			   result.httpStatusCode,
+			   (unsigned int)result.responseBytes);
+	}
+
 	return 0;
 }

@@ -1,3 +1,4 @@
 add_subdirectory(modem-board)
 add_subdirectory(modem-at)
+add_subdirectory(modem-link)
 add_subdirectory(modem-shell)

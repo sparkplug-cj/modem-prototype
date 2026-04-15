@@ -63,6 +63,7 @@ dkms.conf
 control/build/**
 control/tests/catch2/build/**
 platform/tests/catch2/build/**
+control/prj.secrets.conf
 
 # thirdparty sources pulled by west
 thirdparty/**

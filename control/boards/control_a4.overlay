@@ -1,4 +1,8 @@
 / {
+	aliases {
+    modem = &modem;
+	};
+
   chosen {
     zephyr,shell-uart = &cdc_acm_uart0;
   };

@@ -13,6 +13,7 @@ west update
 ```
 
 Notes:
+
 - This repo is already a west workspace (no `west init` required).
 
 ## Canonical build command (known-good)
@@ -20,6 +21,23 @@ Notes:
 ```bash
 west build control -p auto -b control@a4 --shield sense_a3 -d control/build
 ```
+
+## Phase 0 baseline validation
+
+This phase is configuration-only. It locks the RC7620-1 modem onto the existing
+HL7800-compatible integration path and checks that the Zephyr baseline is ready
+for later PPP and HTTPS layers.
+
+- [ ] Confirm [targets/boards/fph/control/control_a4.overlay](targets/boards/fph/control/control_a4.overlay) keeps `modem = &modem` and `modem-uart = &lpuart3`
+- [ ] Confirm the modem node stays on the `swir,hl7800` compatible path for RC7620-1
+- [ ] Confirm [control/prj.conf](control/prj.conf) includes the Zephyr cellular prerequisites required for later PPP work
+- [ ] Confirm `CONFIG_PM_DEVICE` is enabled in the effective build config because the Zephyr `modem_cellular` reference flow uses PM resume/suspend
+- [ ] Confirm later phases will build on Zephyr modem PM, PPP, DNS, sockets, and TLS instead of a custom PPP stack
+
+Notes:
+
+- RC7620-1 is treated as HL7800-compatible in this repository.
+- This phase does not include shell, AT, PPP, or HTTPS runtime validation.
 
 ## Flash
 
@@ -30,6 +48,7 @@ west flash -d control/build
 ```
 
 If flashing fails, capture:
+
 - full console output from `west flash` (include runner name)
 - probe type (e.g., J-Link) and target connection (USB/JTAG/SWD)
 
@@ -69,6 +88,7 @@ kernel uptime
 ```
 
 Troubleshooting notes:
+
 - If no `ttyACM`/`usbmodem`/`COM` port appears, check cable quality and USB permissions/drivers.
 - If the port appears but no prompt, press Enter a couple of times.
 
@@ -135,6 +155,7 @@ Manual acceptance steps:
 - [ ] Confirm transport failures/timeouts are surfaced as explicit shell errors rather than silent hangs
 
 Notes:
+
 - This charter is intentionally narrow: it validates shell-to-UART AT responsiveness, not PPP, Zephyr cellular integration, or automatic modem power-state management.
 - If command timing proves flaky during bring-up, capture the exact command, observed shell output, and whether the modem had just been powered on/reset.
 

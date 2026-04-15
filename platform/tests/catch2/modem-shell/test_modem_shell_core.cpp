@@ -19,6 +19,7 @@ FAKE_VALUE_FUNC(int, modem_board_get_status_fake, struct modem_board_status *);
 FAKE_VALUE_FUNC3(int, modem_at_send_fake, const char *, char *, size_t);
 FAKE_VALUE_FUNC3(int, modem_at_send_runtime_fake, const char *, char *, size_t);
 FAKE_VALUE_FUNC3(int, modem_at_send_power_on_fake, const char *, char *, size_t);
+FAKE_VALUE_FUNC2(int, modem_https_post_fake, const struct modem_shell_http_post_request *, struct modem_shell_http_post_result *);
 FAKE_VOID_FUNC1(modem_sleep_ms_fake, int32_t);
 
 namespace {
@@ -29,6 +30,8 @@ struct ShellCapture {
 };
 
 modem_at_diagnostics g_lastDiagnostics = {};
+modem_shell_http_post_request g_lastPostRequest = {};
+std::string g_lastPostPayload;
 
 void shell_print_capture(void *ctx, const char *fmt, ...)
 {
@@ -62,9 +65,12 @@ void reset_fakes()
   RESET_FAKE(modem_at_send_fake);
   RESET_FAKE(modem_at_send_runtime_fake);
   RESET_FAKE(modem_at_send_power_on_fake);
+  RESET_FAKE(modem_https_post_fake);
   RESET_FAKE(modem_sleep_ms_fake);
   FFF_RESET_HISTORY();
   g_lastDiagnostics = {};
+  g_lastPostRequest = {};
+  g_lastPostPayload.clear();
 }
 
 int fake_status_success(struct modem_board_status *out)
@@ -170,6 +176,43 @@ int fake_at_send_power_on_route_success(const char *command, char *response, siz
 {
   snprintf(response, responseSize, "power-on:%s", command);
   return 0;
+}
+
+int fake_https_post_success(const struct modem_shell_http_post_request *request,
+                           struct modem_shell_http_post_result *result)
+{
+  g_lastPostRequest = *request;
+  g_lastPostPayload.assign(reinterpret_cast<const char *>(request->payload), request->payloadLen);
+
+  if (result != nullptr) {
+    result->httpStatusCode = 200;
+    result->responseBytes = 2;
+    snprintf(result->responsePreview, sizeof(result->responsePreview), "OK");
+  }
+
+  return 0;
+}
+
+int fake_https_post_not_supported(const struct modem_shell_http_post_request *request,
+                                 struct modem_shell_http_post_result *result)
+{
+  (void)request;
+  (void)result;
+  return -ENOTSUP;
+}
+
+int fake_https_post_dns_failure(const struct modem_shell_http_post_request *request,
+                               struct modem_shell_http_post_result *result)
+{
+  (void)request;
+
+  if (result != nullptr) {
+    result->dnsResolveStatus = -2;
+    result->dnsResolveErrno = 113;
+    result->dnsResolveTimeoutMs = 15000;
+  }
+
+  return -EHOSTUNREACH;
 }
 
 
@@ -905,4 +948,155 @@ TEST_CASE("modem at debug prints timeout diagnostics", "[modem-shell]")
 
   REQUIRE(modem_shell_cmd_at_core(&ops, 3, argv) == -ETIMEDOUT);
   REQUIRE(capture.lastError == "AT command timed out waiting for modem response (exit=overall-timeout, bytes=0)");
+}
+
+TEST_CASE("modem post validates secure-only usage", "[modem-shell]")
+{
+  reset_fakes();
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+    modem_https_post_fake,
+  };
+
+  char command[] = "post";
+  char insecure[] = "--insecure";
+  char host[] = "example.com";
+  char port[] = "443";
+  char path[] = "/submit";
+  char *rejectArgv[] = {command, insecure, host, port, path};
+  REQUIRE(modem_shell_cmd_post_core(&ops, 5, rejectArgv) == -EINVAL);
+  REQUIRE(capture.lastError == "HTTPS POST always uses verified TLS; remove --insecure");
+
+  capture = {};
+  char *usageArgv[] = {command};
+  REQUIRE(modem_shell_cmd_post_core(&ops, 1, usageArgv) == -EINVAL);
+  REQUIRE(capture.lastError == "usage: post <host> <port> <path> [payload]");
+}
+
+TEST_CASE("modem post passes parsed request to backend", "[modem-shell]")
+{
+  reset_fakes();
+  modem_https_post_fake_fake.custom_fake = fake_https_post_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+    modem_https_post_fake,
+  };
+
+  char command[] = "post";
+  char host[] = "www.fpinfosmart.net";
+  char port[] = "443";
+  char path[] = "/gus.asmx/dev";
+  char payload[] = "hello modem";
+  char *argv[] = {command, host, port, path, payload};
+
+  REQUIRE(modem_shell_cmd_post_core(&ops, 5, argv) == 0);
+  REQUIRE(modem_https_post_fake_fake.call_count == 1);
+  REQUIRE(std::string(g_lastPostRequest.host) == "www.fpinfosmart.net");
+  REQUIRE(std::string(g_lastPostRequest.port) == "443");
+  REQUIRE(std::string(g_lastPostRequest.path) == "/gus.asmx/dev");
+  REQUIRE(g_lastPostPayload == "hello modem");
+  REQUIRE(capture.lastPrint == "HTTPS POST OK status=200 bytes=2 preview=OK");
+  REQUIRE(capture.lastError.empty());
+}
+
+TEST_CASE("modem post defaults payload and explains missing CA configuration", "[modem-shell]")
+{
+  reset_fakes();
+  modem_https_post_fake_fake.custom_fake = fake_https_post_success;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+    modem_https_post_fake,
+  };
+
+  char command[] = "post";
+  char host[] = "example.com";
+  char port[] = "443";
+  char path[] = "/submit";
+  char *argv[] = {command, host, port, path};
+
+  REQUIRE(modem_shell_cmd_post_core(&ops, 4, argv) == 0);
+  REQUIRE(g_lastPostPayload == "hello world");
+
+  reset_fakes();
+  modem_https_post_fake_fake.custom_fake = fake_https_post_not_supported;
+  capture = {};
+
+  REQUIRE(modem_shell_cmd_post_core(&ops, 4, argv) == -ENOTSUP);
+  REQUIRE(capture.lastError == "HTTPS POST secure TLS is not configured (set CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM in control/prj.secrets.conf)");
+}
+
+TEST_CASE("modem post surfaces DNS resolution details", "[modem-shell]")
+{
+  reset_fakes();
+  modem_https_post_fake_fake.custom_fake = fake_https_post_dns_failure;
+  ShellCapture capture;
+
+  modem_shell_ops ops = {
+    modem_board_power_on_fake,
+    modem_board_power_off_fake,
+    modem_board_power_cycle_fake,
+    modem_board_reset_pulse_fake,
+    modem_board_get_status_fake,
+    modem_at_send_fake,
+    modem_at_send_runtime_fake,
+    modem_at_send_power_on_fake,
+    modem_sleep_ms_fake,
+    shell_print_capture,
+    shell_error_capture,
+    &capture,
+    false,
+    modem_https_post_fake,
+  };
+
+  char command[] = "post";
+  char host[] = "www.fpinfosmart.net";
+  char port[] = "443";
+  char path[] = "/gus.asmx/dev";
+  char payload[] = "test";
+  char *argv[] = {command, host, port, path, payload};
+
+  REQUIRE(modem_shell_cmd_post_core(&ops, 5, argv) == -EHOSTUNREACH);
+  REQUIRE(capture.lastError == "HTTPS POST failed: -118 (DNS resolve failed or host unreachable; getaddrinfo=-2 errno=113 dns_timeout_ms=15000)");
 }

@@ -101,14 +101,16 @@ static void modem_at_irq_debug_log(const struct modem_at_irq_debug *debug, const
 	debug->log(debug->ctx, "%s", buffer);
 }
 
-static int modem_at_irq_write_command(const char *command, const struct modem_at_irq_debug *debug)
+static int modem_at_irq_write_command(const char *command,
+				      const struct modem_at_irq_transport *transport,
+				      const struct modem_at_irq_debug *debug)
 {
-	int ret = modem_at_uart_write((const uint8_t *)command, strlen(command));
+	int ret = transport->write(transport->ctx, (const uint8_t *)command, strlen(command));
 	modem_at_irq_debug_log(debug, "[modem-at irq] command write ret=%d len=%u", ret,
 			      (unsigned int)strlen(command));
 	if (ret == 0) {
 		static const uint8_t cr = '\r';
-		ret = modem_at_uart_write(&cr, 1U);
+		ret = transport->write(transport->ctx, &cr, 1U);
 		modem_at_irq_debug_log(debug, "[modem-at irq] CR write ret=%d", ret);
 	}
 	return ret;
@@ -211,7 +213,8 @@ int modem_at_send_irq(const char *command,
 	modem_at_irq_debug_log(debug, "[modem-at irq] enter cmd='%s'", command != NULL ? command : "<null>");
 
 	if ((command == NULL) || (response == NULL) || (responseSize == 0U) || (transport == NULL) ||
-	    (transport->open == NULL) || (transport->close == NULL) || (transport->read == NULL)) {
+	    (transport->open == NULL) || (transport->close == NULL) || (transport->write == NULL) ||
+	    (transport->read == NULL)) {
 		modem_at_irq_debug_log(debug, "[modem-at irq] invalid args");
 		return -EINVAL;
 	}
@@ -224,7 +227,7 @@ int modem_at_send_irq(const char *command,
 
 	modem_at_irq_debug_log(debug, "[modem-at irq] rx session acquired");
 
-	ret = modem_at_irq_write_command(command, debug);
+	ret = modem_at_irq_write_command(command, transport, debug);
 	if (ret != 0) {
 		transport->close(transport->ctx);
 		modem_at_irq_debug_log(debug, "[modem-at irq] write failed ret=%d", ret);

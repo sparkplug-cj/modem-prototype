@@ -29,6 +29,7 @@ struct modem_at_irq_transport {
 	void *ctx;
 	int (*open)(void *ctx, char *response, size_t responseSize);
 	void (*close)(void *ctx);
+	int (*write)(void *ctx, const uint8_t *data, size_t length);
 	uint32_t (*read)(void *ctx, uint8_t *buffer, size_t bufferSize);
 };
 

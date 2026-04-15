@@ -1,2 +1,15 @@
 rsource "../common/Kconfig"
 
+menu "Control application"
+
+config CONTROL_TLS_SERVER_CA_CERT_PEM
+	string "HTTPS POST root CA certificate"
+	depends on NET_SOCKETS_SOCKOPT_TLS
+	default ""
+	help
+	  PEM-encoded root CA certificate used by the modem shell HTTPS POST
+	  command. Keep the local-only value in control/prj.secrets.conf and
+	  encode line breaks with escaped newlines.
+
+endmenu
+

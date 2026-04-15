@@ -5,12 +5,10 @@ LOG_MODULE_REGISTER(control_app, LOG_LEVEL_INF);
 
 int main(void)
 {
-    LOG_INF("control app boot");
+    LOG_INF("FW_MARKER: phase3-post-help-verify-20260409");
+    LOG_INF("FW_MARKER: expect shell command 'modem post'");
 
     while (1) {
-        k_sleep(K_SECONDS(1));
-        LOG_DBG("tick");
+        k_sleep(K_FOREVER);
     }
-
-    return 0;
 }

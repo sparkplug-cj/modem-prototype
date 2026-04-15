@@ -16,6 +16,9 @@ struct FakeTransport {
   int openRet = 0;
   int openCalls = 0;
   int closeCalls = 0;
+  int writeCalls = 0;
+  int writeRet = 0;
+  std::string writes;
   std::deque<std::string> chunks;
 };
 
@@ -63,6 +66,26 @@ uint32_t transport_read(void *ctx, uint8_t *buffer, size_t bufferSize)
     buffer[i] = static_cast<uint8_t>(chunk[i]);
   }
   return static_cast<uint32_t>(copySize);
+}
+
+int transport_write(void *ctx, const uint8_t *data, size_t length)
+{
+  auto *transport = static_cast<FakeTransport *>(ctx);
+  transport->writeCalls++;
+
+  if ((data == nullptr) && (length > 0U)) {
+    return -EINVAL;
+  }
+
+  if (transport->writeRet != 0) {
+    return transport->writeRet;
+  }
+
+  if ((data != nullptr) && (length > 0U)) {
+    transport->writes.append(reinterpret_cast<const char *>(data), length);
+  }
+
+  return 0;
 }
 
 void debug_log(void *ctx, const char *fmt, ...)
@@ -146,6 +169,7 @@ TEST_CASE("modem_at_send_irq rejects invalid arguments", "[modem-at]")
     &transport,
     transport_open,
     transport_close,
+    transport_write,
     transport_read,
   };
 
@@ -168,6 +192,7 @@ TEST_CASE("modem_at_send_irq writes command and returns response on OK", "[modem
     &transport,
     transport_open,
     transport_close,
+    transport_write,
     transport_read,
   };
   const modem_at_irq_debug debugOps = {
@@ -178,7 +203,8 @@ TEST_CASE("modem_at_send_irq writes command and returns response on OK", "[modem
   REQUIRE(modem_at_send_irq("AT", response, sizeof(response), &transportOps, &debugOps) == 0);
   REQUIRE(transport.openCalls == 1);
   REQUIRE(transport.closeCalls == 1);
-  REQUIRE(g_uart.writes == std::string("AT\r"));
+  REQUIRE(transport.writeCalls == 2);
+  REQUIRE(transport.writes == std::string("AT\r"));
   REQUIRE(std::string(response) == "\r\nOK\r\n");
   REQUIRE_FALSE(debug.lines.empty());
 }
@@ -194,6 +220,7 @@ TEST_CASE("modem_at_send_irq returns EIO on modem error text", "[modem-at]")
     &transport,
     transport_open,
     transport_close,
+    transport_write,
     transport_read,
   };
 
@@ -213,6 +240,7 @@ TEST_CASE("modem_at_send_irq times out and still closes transport", "[modem-at]"
     &transport,
     transport_open,
     transport_close,
+    transport_write,
     transport_read,
   };
 
@@ -220,6 +248,27 @@ TEST_CASE("modem_at_send_irq times out and still closes transport", "[modem-at]"
   REQUIRE(transport.openCalls == 1);
   REQUIRE(transport.closeCalls == 1);
   REQUIRE(g_uart.nowMs >= 5000);
+}
+
+TEST_CASE("modem_at_send_irq propagates transport write errors", "[modem-at]")
+{
+  reset_uart();
+  FakeTransport transport;
+  transport.writeRet = -EIO;
+  char response[32] = {};
+
+  const modem_at_irq_transport transportOps = {
+    &transport,
+    transport_open,
+    transport_close,
+    transport_write,
+    transport_read,
+  };
+
+  REQUIRE(modem_at_send_irq("AT", response, sizeof(response), &transportOps, nullptr) == -EIO);
+  REQUIRE(transport.openCalls == 1);
+  REQUIRE(transport.closeCalls == 1);
+  REQUIRE(transport.writeCalls == 1);
 }
 
 TEST_CASE("modem_at_send uses polling UART path and trims response", "[modem-at]")
