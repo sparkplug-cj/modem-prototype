@@ -651,16 +651,12 @@ modem_uart: &lpuart3 {
   hw-flow-control;
 
   modem: modem {
-    /* RC7620-1 is integrated through the HL7800-compatible binding path. */
-    compatible = "swir,hl7800";
+  compatible = "fph,rc7620";
     status = "okay";
-    /* The generic cellular driver owns the actual MODEM_PWR_ON pulse line. */
-    mdm-power-gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>;
-    /*
-     * Expose only the real reset input to the generic cellular driver.
-     * Board-specific 3V8 rail enable stays in modem-board.
-     */
-    mdm-reset-gpios = <&gpio4 9 GPIO_ACTIVE_HIGH>;
+  auto-start;
+  mdm-rail-en-gpios = <&gpio4 0 GPIO_ACTIVE_HIGH>;
+  mdm-pwr-on-gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>;
+  mdm-reset-gpios = <&gpio4 9 GPIO_ACTIVE_HIGH>;
   };
 };
 

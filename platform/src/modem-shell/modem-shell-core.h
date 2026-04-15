@@ -13,6 +13,17 @@ extern "C" {
 
 #define MODEM_SHELL_HTTP_RESPONSE_PREVIEW_SIZE 128
 
+enum modem_shell_http_connect_stage {
+	MODEM_SHELL_HTTP_CONNECT_STAGE_NONE = 0,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_CA_CERT,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_DNS_RESOLVE,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_SOCKET_CREATE,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_HOSTNAME,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_SEC_TAG_LIST,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_PEER_VERIFY,
+	MODEM_SHELL_HTTP_CONNECT_STAGE_CONNECT,
+};
+
 struct modem_shell_http_post_request {
 	const char *host;
 	const char *port;
@@ -26,6 +37,9 @@ struct modem_shell_http_post_result {
 	int dnsResolveStatus;
 	int dnsResolveErrno;
 	int dnsResolveTimeoutMs;
+	int connectStage;
+	int connectStatus;
+	int connectErrno;
 	size_t responseBytes;
 	char responsePreview[MODEM_SHELL_HTTP_RESPONSE_PREVIEW_SIZE];
 };

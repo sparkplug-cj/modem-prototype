@@ -1,6 +1,26 @@
+source "Kconfig.zephyr"
+
 rsource "../common/Kconfig"
 
 menu "Control application"
+
+config CONTROL_APN
+	string "PPP APN"
+	default ""
+	help
+	  APN used by the custom modem PPP shell helpers.
+
+config CONTROL_APN_USERNAME
+	string "PPP APN username"
+	default ""
+	help
+	  Optional username used by the custom modem PPP shell helpers.
+
+config CONTROL_APN_PASSWORD
+	string "PPP APN password"
+	default ""
+	help
+	  Optional password used by the custom modem PPP shell helpers.
 
 config CONTROL_TLS_SERVER_CA_CERT_PEM
 	string "HTTPS POST root CA certificate"

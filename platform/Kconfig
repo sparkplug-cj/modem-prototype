@@ -1,1 +1,1 @@
-source "Kconfig"
+rsource "src/modem-celluar/Kconfig"

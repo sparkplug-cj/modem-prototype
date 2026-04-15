@@ -56,6 +56,7 @@ target_sources(app PRIVATE
 # Platform units
 target_link_libraries(app PRIVATE platform_src_modem_board_obj)
 target_link_libraries(app PRIVATE platform_src_modem_at_obj)
+target_link_libraries(app PRIVATE platform_src_modem_rc7620_obj)
 target_link_libraries(app PRIVATE platform_src_modem_link_obj)
 target_link_libraries(app PRIVATE platform_src_modem_shell_obj)
 

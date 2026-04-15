@@ -6,7 +6,8 @@
 #include <string.h>
 
 #define MODEM_AT_SYNC_RETRIES 3
-#define MODEM_AT_BOOT_DELAY_MS 10000
+#define MODEM_AT_BOOT_DELAY_MS 15000
+#define MODEM_AT_DISABLE_SLEEP_RETRIES 2
 #define MODEM_AT_SYNC_COMMAND "AT"
 #define MODEM_AT_DISABLE_SLEEP_COMMAND "AT+KSLEEP=2"
 #define MODEM_POST_DEFAULT_PAYLOAD "hello world"
@@ -138,6 +139,41 @@ static bool modem_shell_parse_port(const char *text)
 	return (value > 0L) && (value <= 65535L);
 }
 
+static const char *modem_shell_http_connect_stage_reason(int stage)
+{
+	switch ((enum modem_shell_http_connect_stage)stage) {
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_NONE:
+		return "none";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_CA_CERT:
+		return "ca-cert";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_DNS_RESOLVE:
+		return "dns-resolve";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_SOCKET_CREATE:
+		return "socket-create";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_HOSTNAME:
+		return "tls-hostname";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_SEC_TAG_LIST:
+		return "tls-sec-tag-list";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_PEER_VERIFY:
+		return "tls-peer-verify";
+	case MODEM_SHELL_HTTP_CONNECT_STAGE_CONNECT:
+		return "connect";
+	default:
+		return "unknown";
+	}
+}
+
+static bool modem_shell_http_has_connect_detail(const struct modem_shell_http_post_result *result)
+{
+	if (result == NULL) {
+		return false;
+	}
+
+	return (result->connectStage != MODEM_SHELL_HTTP_CONNECT_STAGE_NONE) ||
+	       (result->connectStatus != 0) ||
+	       (result->connectErrno != 0);
+}
+
 static const char *modem_shell_post_error_reason(int ret)
 {
 	switch (ret) {
@@ -148,7 +184,7 @@ static const char *modem_shell_post_error_reason(int ret)
 	case -EHOSTUNREACH:
 		return "DNS resolve failed or host unreachable";
 	case -ECONNREFUSED:
-		return "TLS connect or handshake failed";
+		return "HTTPS connect or TLS setup failed after DNS";
 	case -ENOTSUP:
 		return "verified TLS is not configured (missing CA certificate)";
 	case -EBADMSG:
@@ -165,7 +201,7 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 	char response[256];
 	int ret = -ETIMEDOUT;
 
-	ops->print(ops->ctx, "Waiting 10s for modem boot...");
+	ops->print(ops->ctx, "Waiting 15s for modem boot...");
 	ops->sleep_ms(MODEM_AT_BOOT_DELAY_MS);
 
 	for (int attempt = 0; attempt < MODEM_AT_SYNC_RETRIES; ++attempt) {
@@ -184,14 +220,23 @@ static int modem_shell_disable_sleep_after_power_on(const struct modem_shell_ops
 		return ret;
 	}
 
-	ops->print(ops->ctx, "Disabling sleep...");
-	ret = modem_shell_run_at_command(ops,
-					 MODEM_SHELL_AT_SEND_MODE_POWER_ON,
-					 MODEM_AT_DISABLE_SLEEP_COMMAND,
-					 response,
-					 sizeof(response));
+	for (int attempt = 0; attempt < MODEM_AT_DISABLE_SLEEP_RETRIES; ++attempt) {
+		ops->print(ops->ctx,
+			"Disabling sleep (attempt %d/%d)...",
+			attempt + 1,
+			MODEM_AT_DISABLE_SLEEP_RETRIES);
+		ret = modem_shell_run_at_command(ops,
+						 MODEM_SHELL_AT_SEND_MODE_POWER_ON,
+						 MODEM_AT_DISABLE_SLEEP_COMMAND,
+						 response,
+						 sizeof(response));
+		if (ret == 0) {
+			break;
+		}
+	}
+
 	if (ret != 0) {
-		ops->error(ops->ctx, "failed to disable modem sleep: %d", ret);
+		ops->error(ops->ctx, "failed to disable modem sleep after power-on: %d", ret);
 		return ret;
 	}
 
@@ -449,6 +494,17 @@ int modem_shell_cmd_post_core(const struct modem_shell_ops *ops, size_t argc, ch
 		if (ret == -ENOTSUP) {
 			ops->error(ops->ctx,
 			   "HTTPS POST secure TLS is not configured (set CONFIG_CONTROL_TLS_SERVER_CA_CERT_PEM in control/prj.secrets.conf)");
+			return ret;
+		}
+
+		if (modem_shell_http_has_connect_detail(&result)) {
+			ops->error(ops->ctx,
+			  "HTTPS POST failed: %d (%s; stage=%s status=%d errno=%d)",
+			  ret,
+			  modem_shell_post_error_reason(ret),
+			  modem_shell_http_connect_stage_reason(result.connectStage),
+			  result.connectStatus,
+			  result.connectErrno);
 			return ret;
 		}
 

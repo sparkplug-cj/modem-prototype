@@ -1,4 +1,5 @@
 #include "modem-shell-core.h"
+#include "modem-shell-uart.h"
 
 #include "modem-at.h"
 #include "modem-board.h"
@@ -44,6 +45,20 @@ struct modem_http_response_context {
 	struct modem_shell_http_post_result *result;
 	size_t previewLength;
 };
+
+static void modem_http_record_connect_failure(struct modem_shell_http_post_result *result,
+				      enum modem_shell_http_connect_stage stage,
+				      int status,
+				      int err)
+{
+	if (result == NULL) {
+		return;
+	}
+
+	result->connectStage = (int)stage;
+	result->connectStatus = status;
+	result->connectErrno = err;
+}
 
 static void modem_shell_print_link_diagnostics(const struct shell *sh,
 				       const struct modem_link_diagnostics *diagnostics);
@@ -208,11 +223,18 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 
 	ret = modem_http_register_ca_certificate();
 	if (ret != 0) {
+		modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_CA_CERT,
+						 ret,
+						 0);
 		return ret;
 	}
 
 	if (result != NULL) {
 		result->dnsResolveTimeoutMs = CONFIG_NET_SOCKETS_DNS_TIMEOUT;
+		result->connectStage = MODEM_SHELL_HTTP_CONNECT_STAGE_NONE;
+		result->connectStatus = 0;
+		result->connectErrno = 0;
 	}
 
 	hints.ai_family = AF_INET;
@@ -233,6 +255,10 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 			request->host,
 			ret,
 			errno);
+		modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_DNS_RESOLVE,
+						 ret,
+						 errno);
 		return -EHOSTUNREACH;
 	}
 
@@ -242,12 +268,20 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 		socketFd = zsock_socket(candidate->ai_family, candidate->ai_socktype,
 					      IPPROTO_TLS_1_2);
 		if (socketFd < 0) {
+			modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_SOCKET_CREATE,
+						 socketFd,
+						 errno);
 			continue;
 		}
 
 		ret = zsock_setsockopt(socketFd, SOL_TLS, TLS_HOSTNAME,
 					       request->host, strlen(request->host));
 		if (ret < 0) {
+			modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_HOSTNAME,
+						 ret,
+						 errno);
 			zsock_close(socketFd);
 			socketFd = -1;
 			continue;
@@ -256,6 +290,10 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 		ret = zsock_setsockopt(socketFd, SOL_TLS, TLS_SEC_TAG_LIST,
 					       secTagList, sizeof(secTagList));
 		if (ret < 0) {
+			modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_SEC_TAG_LIST,
+						 ret,
+						 errno);
 			zsock_close(socketFd);
 			socketFd = -1;
 			continue;
@@ -264,6 +302,10 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 		ret = zsock_setsockopt(socketFd, SOL_TLS, TLS_PEER_VERIFY,
 					       &verifyMode, sizeof(verifyMode));
 		if (ret < 0) {
+			modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_PEER_VERIFY,
+						 ret,
+						 errno);
 			zsock_close(socketFd);
 			socketFd = -1;
 			continue;
@@ -272,16 +314,30 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 		ret = zsock_connect(socketFd, candidate->ai_addr, candidate->ai_addrlen);
 		if (ret == 0) {
 			LOG_INF("HTTPS connect established host=%s port=%s", request->host, request->port);
+			modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_NONE,
+						 0,
+						 0);
 			*addressOut = address;
 			return socketFd;
 		}
+
+		modem_http_record_connect_failure(result,
+						 MODEM_SHELL_HTTP_CONNECT_STAGE_CONNECT,
+						 ret,
+						 errno);
 
 		zsock_close(socketFd);
 		socketFd = -1;
 	}
 
 	zsock_freeaddrinfo(address);
-	LOG_WRN("HTTPS connect failed after resolve host=%s port=%s", request->host, request->port);
+	LOG_WRN("HTTPS connect failed after resolve host=%s port=%s stage=%d status=%d errno=%d",
+		request->host,
+		request->port,
+		result != NULL ? result->connectStage : MODEM_SHELL_HTTP_CONNECT_STAGE_NONE,
+		result != NULL ? result->connectStatus : 0,
+		result != NULL ? result->connectErrno : 0);
 	return -ECONNREFUSED;
 }
 
@@ -672,6 +728,44 @@ static void modem_uart_rx_release(enum modem_uart_rx_owner owner)
 	modemUartRxOwner = MODEM_UART_RX_OWNER_NONE;
 }
 
+int modem_uart_owner_acquire(enum modem_uart_owner owner)
+{
+	switch (owner) {
+	case MODEM_UART_OWNER_AT:
+		return modem_uart_rx_acquire(MODEM_UART_RX_OWNER_AT);
+	case MODEM_UART_OWNER_PPP:
+		return modem_uart_rx_acquire(MODEM_UART_RX_OWNER_PASSTHROUGH);
+	default:
+		return -EINVAL;
+	}
+}
+
+void modem_uart_owner_release(enum modem_uart_owner owner)
+{
+	switch (owner) {
+	case MODEM_UART_OWNER_AT:
+		modem_uart_rx_release(MODEM_UART_RX_OWNER_AT);
+		break;
+	case MODEM_UART_OWNER_PPP:
+		modem_uart_rx_release(MODEM_UART_RX_OWNER_PASSTHROUGH);
+		break;
+	default:
+		break;
+	}
+}
+
+enum modem_uart_owner modem_uart_owner_get(void)
+{
+	switch (modemUartRxOwner) {
+	case MODEM_UART_RX_OWNER_AT:
+		return MODEM_UART_OWNER_AT;
+	case MODEM_UART_RX_OWNER_PASSTHROUGH:
+		return MODEM_UART_OWNER_PPP;
+	default:
+		return MODEM_UART_OWNER_NONE;
+	}
+}
+
 static uint32_t modem_uart_rx_read(void *ctx, uint8_t *buffer, size_t bufferSize)
 {
 	ARG_UNUSED(ctx);
@@ -813,7 +907,7 @@ static int modem_shell_at_send_irq(const char *command, char *response, size_t r
 }
 
 static const struct modem_shell_ops shellOps = {
-	// .modem_board_power_on = modem_board_power_on,
+	.modem_board_power_on = modem_board_power_on,
 	.modem_board_power_off = modem_board_power_off,
 	.modem_board_power_cycle = modem_board_power_cycle,
 	.modem_board_reset_pulse = modem_board_reset_pulse,
@@ -1061,19 +1155,19 @@ static int cmd_modem_reset(const struct shell *sh, size_t argc, char **argv)
 	return modem_shell_cmd_reset_core(&ops);
 }
 
-// static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
-// {
-// 	if ((argc >= 2U) &&
-// 	    ((strcmp(argv[1], "on") == 0) || (strcmp(argv[1], "cycle") == 0)) &&
-// 	    (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE)) {
-// 		shell_error(sh, "modem UART RX is busy");
-// 		return -EBUSY;
-// 	}
+static int cmd_modem_power(const struct shell *sh, size_t argc, char **argv)
+{
+	if ((argc >= 2U) &&
+	    ((strcmp(argv[1], "on") == 0) || (strcmp(argv[1], "cycle") == 0)) &&
+	    (modemUartRxOwner != MODEM_UART_RX_OWNER_NONE)) {
+		shell_error(sh, "modem UART RX is busy");
+		return -EBUSY;
+	}
 
-// 	struct modem_shell_ops ops = shellOps;
-// 	ops.ctx = (void *)sh;
-// 	return modem_shell_cmd_power_core(&ops, argc, argv);
-// }
+	struct modem_shell_ops ops = shellOps;
+	ops.ctx = (void *)sh;
+	return modem_shell_cmd_power_core(&ops, argc, argv);
+}
 
 static int cmd_modem_at(const struct shell *sh, size_t argc, char **argv)
 {
@@ -1226,7 +1320,7 @@ static int cmd_modem_passthrough(const struct shell *sh, size_t argc, char **arg
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD(status, NULL, "Print modem GPIO status", cmd_modem_status),
 	SHELL_CMD(reset, NULL, "Pulse modem reset (MODEM_nRST)", cmd_modem_reset),
-	// SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
+	SHELL_CMD_ARG(power, NULL, "Modem power control: power <on|off|cycle>", cmd_modem_power, 2, 0),
 	SHELL_CMD_ARG(at, NULL, "Send AT command: at [--debug] <command>", cmd_modem_at, 2, SHELL_OPT_ARG_RAW),
 	SHELL_CMD_ARG(dns, NULL, "DNS probe: dns <host>", cmd_modem_dns, 2, 0),
 	SHELL_CMD_ARG(post, NULL,

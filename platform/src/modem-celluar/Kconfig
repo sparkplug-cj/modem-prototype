@@ -1,0 +1,57 @@
+menuconfig MODEM_RC7620
+	bool "FPH RC7620 modem support"
+	depends on DT_HAS_FPH_RC7620_ENABLED
+	depends on PM_DEVICE
+	depends on NET_L2_PPP
+	select MODEM_MODULES
+	select MODEM_CHAT
+	select MODEM_CMUX
+	select MODEM_PPP
+	select MODEM_BACKEND_UART
+	select RING_BUFFER
+	select NET_L2_PPP_OPTION_MRU
+	select NET_L2_PPP_PAP
+	select NET_L2_PPP_MGMT
+	help
+	  Enables the platform-local RC7620 driver and keeps modem-specific
+	  bring-up logic out of the vendor Zephyr tree.
+
+if MODEM_RC7620
+
+config MODEM_RC7620_UART_BUFFER_SIZE
+	int "UART RX/TX buffer size"
+	default 512
+
+config MODEM_RC7620_CHAT_BUFFER_SIZE
+	int "Chat buffer size"
+	default 128
+
+config MODEM_RC7620_PPP_BUFFER_SIZE
+	int "PPP frame buffer size"
+	default 128
+
+config MODEM_RC7620_POWER_ON_PULSE_MS
+	int "Power-on pulse width in milliseconds"
+	default 250
+
+config MODEM_RC7620_POWER_OFF_PULSE_MS
+	int "Power-off pulse width in milliseconds"
+	default 1500
+
+config MODEM_RC7620_RESET_PULSE_MS
+	int "Reset pulse width in milliseconds"
+	default 200
+
+config MODEM_RC7620_STARTUP_TIME_MS
+	int "Startup delay in milliseconds"
+	default 15000
+
+config MODEM_RC7620_SHUTDOWN_TIME_MS
+	int "Shutdown delay in milliseconds"
+	default 5000
+
+config MODEM_RC7620_PERIODIC_SCRIPT_MS
+	int "Periodic status script interval in milliseconds"
+	default 2000
+
+endif
