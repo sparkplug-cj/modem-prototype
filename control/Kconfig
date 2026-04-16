@@ -22,6 +22,13 @@ config CONTROL_APN_PASSWORD
 	help
 	  Optional password used by the custom modem PPP shell helpers.
 
+config CONTROL_SERVER_HOST
+	string "Verified HTTPS server hostname"
+	default ""
+	help
+	  DNS hostname used for TLS SNI and HTTP Host when the modem shell HTTPS
+	  POST command connects to a raw IPv4 address.
+
 config CONTROL_TLS_SERVER_CA_CERT_PEM
 	string "HTTPS POST root CA certificate"
 	depends on NET_SOCKETS_SOCKOPT_TLS

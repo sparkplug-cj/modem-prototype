@@ -351,6 +351,20 @@ static bool modem_rc7620_is_registered(struct modem_rc7620_data *data)
 	       (data->registrationStatusLte == CELLULAR_REGISTRATION_REGISTERED_ROAMING);
 }
 
+static bool modem_rc7620_rail_is_already_enabled(struct modem_rc7620_data *data)
+{
+	const struct modem_rc7620_config *config = data->dev->config;
+	int railState;
+
+	railState = gpio_pin_get_dt(&config->railGpio);
+	if (railState < 0) {
+		LOG_WRN("failed to read modem rail GPIO (%d)", railState);
+		return false;
+	}
+
+	return railState != 0;
+}
+
 static void modem_rc7620_chat_callback_handler(struct modem_chat *chat,
 					      enum modem_chat_script_result result,
 					      void *userData);
@@ -786,7 +800,10 @@ static void modem_rc7620_idle_event_handler(struct modem_rc7620_data *data,
 
 	switch (event) {
 	case MODEM_RC7620_EVENT_RESUME:
-		if (config->autostarts) {
+		if (modem_rc7620_rail_is_already_enabled(data)) {
+			LOG_INF("Modem rail already enabled, skipping power-on pulse");
+			modem_rc7620_enter_state(data, MODEM_RC7620_STATE_AWAIT_POWER_ON);
+		} else if (config->autostarts) {
 			modem_rc7620_enter_state(data, MODEM_RC7620_STATE_AWAIT_POWER_ON);
 		} else {
 			modem_rc7620_enter_state(data, MODEM_RC7620_STATE_POWER_ON_PULSE);

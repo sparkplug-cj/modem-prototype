@@ -67,6 +67,30 @@ static char modemHttpCaCertificate[MODEM_HTTP_TLS_CA_CERT_BUFFER_SIZE];
 static bool modemHttpTlsCredentialAttempted;
 static int modemHttpTlsCredentialStatus = -ENOTSUP;
 
+static bool modem_http_host_is_ipv4_literal(const char *host)
+{
+	struct in_addr address;
+
+	if ((host == NULL) || (host[0] == '\0')) {
+		return false;
+	}
+
+	return zsock_inet_pton(AF_INET, host, &address) == 1;
+}
+
+static const char *modem_http_select_verified_host(const char *connectHost)
+{
+	if (!modem_http_host_is_ipv4_literal(connectHost)) {
+		return connectHost;
+	}
+
+	if (CONFIG_CONTROL_SERVER_HOST[0] == '\0') {
+		return connectHost;
+	}
+
+	return CONFIG_CONTROL_SERVER_HOST;
+}
+
 static char modem_http_preview_char(uint8_t byte)
 {
 	if ((byte >= 0x20U) && (byte <= 0x7eU)) {
@@ -216,6 +240,7 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 {
 	struct zsock_addrinfo hints = {0};
 	struct zsock_addrinfo *address = NULL;
+	const char *verifiedHost;
 	sec_tag_t secTagList[] = { MODEM_HTTP_TLS_SEC_TAG };
 	int socketFd = -1;
 	int verifyMode = TLS_PEER_VERIFY_REQUIRED;
@@ -239,11 +264,18 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 
 	hints.ai_family = AF_INET;
 	hints.ai_socktype = SOCK_STREAM;
+	verifiedHost = modem_http_select_verified_host(request->host);
 
-	LOG_INF("HTTPS connect start host=%s port=%s dns_timeout_ms=%d",
+	LOG_INF("HTTPS connect start host=%s tls_host=%s port=%s dns_timeout_ms=%d",
 		request->host,
+		verifiedHost,
 		request->port,
 		CONFIG_NET_SOCKETS_DNS_TIMEOUT);
+
+	if (modem_http_host_is_ipv4_literal(request->host) && (verifiedHost == request->host)) {
+		LOG_WRN("HTTPS raw IP target %s has no CONFIG_CONTROL_SERVER_HOST override",
+			request->host);
+	}
 
 	ret = zsock_getaddrinfo(request->host, request->port, &hints, &address);
 	if ((ret != 0) || (address == NULL)) {
@@ -276,7 +308,7 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 		}
 
 		ret = zsock_setsockopt(socketFd, SOL_TLS, TLS_HOSTNAME,
-					       request->host, strlen(request->host));
+					       verifiedHost, strlen(verifiedHost));
 		if (ret < 0) {
 			modem_http_record_connect_failure(result,
 						 MODEM_SHELL_HTTP_CONNECT_STAGE_TLS_HOSTNAME,
@@ -313,7 +345,10 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 
 		ret = zsock_connect(socketFd, candidate->ai_addr, candidate->ai_addrlen);
 		if (ret == 0) {
-			LOG_INF("HTTPS connect established host=%s port=%s", request->host, request->port);
+			LOG_INF("HTTPS connect established host=%s tls_host=%s port=%s",
+				request->host,
+				verifiedHost,
+				request->port);
 			modem_http_record_connect_failure(result,
 						 MODEM_SHELL_HTTP_CONNECT_STAGE_NONE,
 						 0,
@@ -332,8 +367,9 @@ static int modem_http_connect_socket(const struct modem_shell_http_post_request 
 	}
 
 	zsock_freeaddrinfo(address);
-	LOG_WRN("HTTPS connect failed after resolve host=%s port=%s stage=%d status=%d errno=%d",
+	LOG_WRN("HTTPS connect failed after resolve host=%s tls_host=%s port=%s stage=%d status=%d errno=%d",
 		request->host,
+		verifiedHost,
 		request->port,
 		result != NULL ? result->connectStage : MODEM_SHELL_HTTP_CONNECT_STAGE_NONE,
 		result != NULL ? result->connectStatus : 0,
@@ -546,6 +582,7 @@ static int modem_shell_https_post(const struct modem_shell_http_post_request *re
 		NULL,
 	};
 	uint8_t recvBuffer[MODEM_HTTP_RECV_BUFFER_SIZE] = {0};
+	const char *verifiedHost;
 	struct modem_http_response_context responseContext = {
 		.result = result,
 		.previewLength = 0U,
@@ -570,6 +607,7 @@ static int modem_shell_https_post(const struct modem_shell_http_post_request *re
 	}
 
 	memset(result, 0, sizeof(*result));
+	verifiedHost = modem_http_select_verified_host(request->host);
 
 	socketFd = modem_http_connect_socket(request, result, &address);
 	if (socketFd < 0) {
@@ -579,7 +617,7 @@ static int modem_shell_https_post(const struct modem_shell_http_post_request *re
 	httpRequest.method = HTTP_POST;
 	httpRequest.url = request->path;
 	httpRequest.protocol = "HTTP/1.1";
-	httpRequest.host = request->host;
+	httpRequest.host = verifiedHost;
 	httpRequest.port = request->port;
 	httpRequest.response = modem_http_response_cb;
 	httpRequest.recv_buf = recvBuffer;
@@ -1324,7 +1362,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_modem,
 	SHELL_CMD_ARG(at, NULL, "Send AT command: at [--debug] <command>", cmd_modem_at, 2, SHELL_OPT_ARG_RAW),
 	SHELL_CMD_ARG(dns, NULL, "DNS probe: dns <host>", cmd_modem_dns, 2, 0),
 	SHELL_CMD_ARG(post, NULL,
-		      "HTTPS POST: post <host> <port> <path> [payload]",
+		      "HTTPS POST: post <host> <port> <path> [payload] (IPv4 literal uses CONFIG_CONTROL_SERVER_HOST for verified TLS)",
 		      cmd_modem_post, 4, SHELL_OPT_ARG_RAW),
 	SHELL_CMD_ARG(passthrough, NULL,
 		      "Raw UART passthrough to modem. Use --debug for RX trace mode; Ctrl-X then Ctrl-Q exits.",
