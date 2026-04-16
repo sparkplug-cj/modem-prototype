@@ -58,8 +58,13 @@ struct modem_shell_ops {
 	void (*error)(void *ctx, const char *fmt, ...);
 	void *ctx;
 	bool modemAtDebug;
+	#ifdef __cplusplus
+	int (*https_post)(const struct modem_shell_http_post_request *request,
+			 struct modem_shell_http_post_result *result) = nullptr;
+	#else
 	int (*https_post)(const struct modem_shell_http_post_request *request,
 			 struct modem_shell_http_post_result *result);
+	#endif
 };
 
 int modem_shell_cmd_status_core(const struct modem_shell_ops *ops);

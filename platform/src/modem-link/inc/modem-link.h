@@ -45,6 +45,7 @@ const char *modem_link_stage_str(enum modem_link_stage stage);
 int modem_link_get_ppp_iface(struct net_if **out);
 int modem_link_ensure_ready(const struct modem_link_options *options,
 				    struct modem_link_diagnostics *diagnostics);
+int modem_link_disconnect(void);
 
 #ifdef __cplusplus
 }

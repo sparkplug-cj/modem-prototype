@@ -13,6 +13,7 @@ add_library(${LIBRARY_NAME_OBJ} OBJECT)
 target_include_directories(${LIBRARY_NAME_OBJ} PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/inc
+  ${PLATFORM_SRC_DIR}/modem-link/inc
   ${PLATFORM_SRC_DIR}/modem-shell/inc
 )
 
@@ -21,6 +22,7 @@ target_sources(${LIBRARY_NAME_OBJ} PRIVATE
 )
 
 target_link_libraries(${LIBRARY_NAME_OBJ} PUBLIC platform_src_modem_rc7620)
+target_link_libraries(${LIBRARY_NAME_OBJ} PRIVATE platform_src_modem_link)
 target_link_libraries(${LIBRARY_NAME_OBJ} PRIVATE platform_src_modem_shell)
 
 mark_zephyr_system_includes(${LIBRARY_NAME_OBJ})

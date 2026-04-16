@@ -1,6 +1,7 @@
 #define DT_DRV_COMPAT fph_rc7620
 
 #include "modem-rc7620.h"
+#include <modem-link-conn-mgr.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1788,9 +1789,15 @@ int modem_rc7620_set_profile(const struct device *dev, const char *apn,
 
 #define MODEM_RC7620_INST_NAME(name, inst) _CONCAT_4(name, _, DT_DRV_COMPAT, inst)
 
+#define MODEM_RC7620_PPP_NET_DEV_NAME(inst) _CONCAT(ppp_net_dev_, MODEM_RC7620_INST_NAME(ppp, inst))
+#define MODEM_RC7620_BIND_CONN_EXPANDED(dev_id, conn_id) CONN_MGR_BIND_CONN(dev_id, conn_id)
+#define MODEM_RC7620_BIND_CONN(inst, conn_id)                                              \
+	MODEM_RC7620_BIND_CONN_EXPANDED(MODEM_RC7620_PPP_NET_DEV_NAME(inst), conn_id)
+
 #define MODEM_RC7620_DEFINE_INSTANCE(inst)                                                       \
 	MODEM_PPP_DEFINE(MODEM_RC7620_INST_NAME(ppp, inst), NULL, 98, 1500,                       \
 			 CONFIG_MODEM_RC7620_PPP_BUFFER_SIZE);                                     \
+	MODEM_RC7620_BIND_CONN(inst, MODEM_LINK_CONN_IMPL);                                  \
 	static struct modem_rc7620_data MODEM_RC7620_INST_NAME(data, inst) = {                      \
 		.chatDelimiter = (uint8_t *)"\r",                                                 \
 		.chatFilter = (uint8_t *)"\n",                                                    \

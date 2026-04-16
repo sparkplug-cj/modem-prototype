@@ -1,17 +1,22 @@
 #include "modem-link-internal.h"
 
 #include "modem-board.h"
+#include "modem-link-conn-mgr.h"
 
 #include <errno.h>
+#include <limits.h>
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/net/conn_mgr_connectivity_impl.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/net/ppp.h>
 #include <zephyr/pm/device.h>
+
+#define MODEM_LINK_CONN_MGR_STACK_SIZE 2048
 
 LOG_MODULE_REGISTER(modem_link, CONFIG_LOG_DEFAULT_LEVEL);
 
@@ -20,6 +25,29 @@ static const struct device *const modemDevice = DEVICE_DT_GET(DT_ALIAS(modem));
 #else
 static const struct device *const modemDevice;
 #endif
+
+static struct k_work_q modemLinkConnMgrWorkQ;
+static K_THREAD_STACK_DEFINE(modemLinkConnMgrWorkQStack, MODEM_LINK_CONN_MGR_STACK_SIZE);
+static bool modemLinkConnMgrWorkQStarted;
+
+static int modem_link_suspend_modem_zephyr(void);
+static void modem_link_conn_mgr_connect_work_handler(struct k_work *work);
+static void modem_link_conn_mgr_disconnect_work_handler(struct k_work *work);
+
+static void modem_link_conn_mgr_workq_start(void)
+{
+	if (modemLinkConnMgrWorkQStarted) {
+		return;
+	}
+
+	k_work_queue_init(&modemLinkConnMgrWorkQ);
+	k_work_queue_start(&modemLinkConnMgrWorkQ,
+				  modemLinkConnMgrWorkQStack,
+				  K_THREAD_STACK_SIZEOF(modemLinkConnMgrWorkQStack),
+				  K_PRIO_PREEMPT(8),
+				  NULL);
+	modemLinkConnMgrWorkQStarted = true;
+}
 
 static bool modem_link_board_status_indicates_on(const struct modem_board_status *status)
 {
@@ -56,6 +84,19 @@ static void modem_link_power_off_board_if_needed(void)
 	}
 
 	(void)modem_board_power_off();
+}
+
+static int modem_link_disconnect_zephyr(void)
+{
+	int ret;
+
+	ret = modem_link_suspend_modem_zephyr();
+	if ((ret != 0) && (ret != -EALREADY)) {
+		return ret;
+	}
+
+	modem_link_power_off_board_if_needed();
+	return 0;
 }
 
 static int modem_link_suspend_modem_zephyr(void)
@@ -184,6 +225,134 @@ static const struct modem_link_core_ops modemLinkCoreOps = {
 	.wait_event = modem_link_wait_event_zephyr,
 };
 
+static int32_t modem_link_conn_mgr_timeout_to_ms(int timeoutSeconds)
+{
+	if (timeoutSeconds == CONN_MGR_IF_NO_TIMEOUT) {
+		return MODEM_LINK_TIMEOUT_FOREVER;
+	}
+
+	if (timeoutSeconds < 0) {
+		return MODEM_LINK_TIMEOUT_FOREVER;
+	}
+
+	if (timeoutSeconds > (INT32_MAX / 1000)) {
+		return INT32_MAX;
+	}
+
+	return timeoutSeconds * 1000;
+}
+
+static void modem_link_conn_mgr_connect_work_handler(struct k_work *work)
+{
+	struct modem_link_conn_mgr_ctx *ctx = CONTAINER_OF(work, struct modem_link_conn_mgr_ctx,
+							   connectWork);
+	struct modem_link_diagnostics diagnostics;
+	struct modem_link_options options = modem_link_default_options();
+	struct conn_mgr_conn_binding *binding = ctx->binding;
+	int ret;
+
+	options.waitForDns = false;
+
+	if (binding == NULL) {
+		return;
+	}
+
+	conn_mgr_binding_lock(binding);
+	if (!ctx->connectRequested) {
+		conn_mgr_binding_unlock(binding);
+		return;
+	}
+
+	options.l4TimeoutMs = modem_link_conn_mgr_timeout_to_ms(binding->timeout);
+	conn_mgr_binding_unlock(binding);
+
+	ret = modem_link_ensure_ready(&options, &diagnostics);
+
+	conn_mgr_binding_lock(binding);
+	if (ret == 0) {
+		ctx->connectRequested = false;
+	}
+	conn_mgr_binding_unlock(binding);
+
+	if (ret == -ETIMEDOUT) {
+		net_mgmt_event_notify(NET_EVENT_CONN_IF_TIMEOUT, binding->iface);
+	} else if (ret != 0) {
+		net_mgmt_event_notify_with_info(NET_EVENT_CONN_IF_FATAL_ERROR,
+					       binding->iface,
+					       &ret,
+					       sizeof(ret));
+	}
+}
+
+static void modem_link_conn_mgr_disconnect_work_handler(struct k_work *work)
+{
+	struct modem_link_conn_mgr_ctx *ctx = CONTAINER_OF(work, struct modem_link_conn_mgr_ctx,
+							   disconnectWork);
+	struct conn_mgr_conn_binding *binding = ctx->binding;
+	int ret;
+
+	if (binding == NULL) {
+		return;
+	}
+
+	conn_mgr_binding_lock(binding);
+	ctx->connectRequested = false;
+	ctx->disconnectRequested = false;
+	conn_mgr_binding_unlock(binding);
+
+	ret = modem_link_disconnect_zephyr();
+	if (ret != 0) {
+		net_mgmt_event_notify_with_info(NET_EVENT_CONN_IF_FATAL_ERROR,
+					       binding->iface,
+					       &ret,
+					       sizeof(ret));
+	}
+}
+
+static void modem_link_conn_mgr_init(struct conn_mgr_conn_binding *const binding)
+{
+	struct modem_link_conn_mgr_ctx *ctx = binding->ctx;
+
+	modem_link_conn_mgr_workq_start();
+	ctx->binding = binding;
+	ctx->connectRequested = false;
+	ctx->disconnectRequested = false;
+	k_work_init(&ctx->connectWork, modem_link_conn_mgr_connect_work_handler);
+	k_work_init(&ctx->disconnectWork, modem_link_conn_mgr_disconnect_work_handler);
+	conn_mgr_binding_set_flag(binding, CONN_MGR_IF_NO_AUTO_CONNECT, true);
+	conn_mgr_binding_set_flag(binding, CONN_MGR_IF_NO_AUTO_DOWN, true);
+}
+
+static int modem_link_conn_mgr_connect(struct conn_mgr_conn_binding *const binding)
+{
+	struct modem_link_conn_mgr_ctx *ctx = binding->ctx;
+	int ret;
+
+	ctx->connectRequested = true;
+	ctx->disconnectRequested = false;
+	ret = k_work_submit_to_queue(&modemLinkConnMgrWorkQ, &ctx->connectWork);
+	return (ret < 0) ? ret : 0;
+}
+
+static int modem_link_conn_mgr_disconnect(struct conn_mgr_conn_binding *const binding)
+{
+	struct modem_link_conn_mgr_ctx *ctx = binding->ctx;
+	int ret;
+
+	ctx->disconnectRequested = true;
+	ctx->connectRequested = false;
+	ret = k_work_submit_to_queue(&modemLinkConnMgrWorkQ, &ctx->disconnectWork);
+	return (ret < 0) ? ret : 0;
+}
+
+static struct conn_mgr_conn_api modemLinkConnMgrApi = {
+	.connect = modem_link_conn_mgr_connect,
+	.disconnect = modem_link_conn_mgr_disconnect,
+	.init = modem_link_conn_mgr_init,
+};
+
+CONN_MGR_CONN_DEFINE(MODEM_LINK_CONN_IMPL, &modemLinkConnMgrApi);
+
 static bool modem_link_should_preserve_runtime_state(const struct modem_link_diagnostics *diagnostics)
 {
 	if (diagnostics == NULL) {
@@ -251,4 +420,9 @@ int modem_link_ensure_ready(const struct modem_link_options *options,
 	(void)modem_link_suspend_modem_zephyr();
 	modem_link_power_off_board_if_needed();
 	return ret;
+}
+
+int modem_link_disconnect(void)
+{
+	return modem_link_disconnect_zephyr();
 }

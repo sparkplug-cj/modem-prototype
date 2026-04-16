@@ -412,7 +412,7 @@ TEST_CASE("modem power validates usage and dispatches requested operation", "[mo
   REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == 0);
   REQUIRE(modem_board_power_on_fake_fake.call_count == 1);
   REQUIRE(modem_sleep_ms_fake_fake.call_count == 1);
-  REQUIRE(modem_sleep_ms_fake_fake.arg0_val == 10000);
+  REQUIRE(modem_sleep_ms_fake_fake.arg0_val == 15000);
   REQUIRE(modem_at_send_fake_fake.call_count == 2);
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[0]) == "AT");
   REQUIRE(std::string(modem_at_send_fake_fake.arg0_history[1]) == "AT+KSLEEP=2");
@@ -489,8 +489,8 @@ TEST_CASE("modem power reports sleep-disable failures after successful power on"
   REQUIRE(modem_shell_cmd_power_core(&ops, 2, argv) == -ETIMEDOUT);
   REQUIRE(modem_board_power_on_fake_fake.call_count == 1);
   REQUIRE(modem_sleep_ms_fake_fake.call_count == 1);
-  REQUIRE(modem_at_send_fake_fake.call_count == 2);
-  REQUIRE(capture.lastError == "failed to disable modem sleep: -110");
+  REQUIRE(modem_at_send_fake_fake.call_count == 3);
+  REQUIRE(capture.lastError == "failed to disable modem sleep after power-on: -110");
 }
 
 TEST_CASE("modem power prefers dedicated power-on sender when configured", "[modem-shell]")
@@ -1098,5 +1098,5 @@ TEST_CASE("modem post surfaces DNS resolution details", "[modem-shell]")
   char *argv[] = {command, host, port, path, payload};
 
   REQUIRE(modem_shell_cmd_post_core(&ops, 5, argv) == -EHOSTUNREACH);
-  REQUIRE(capture.lastError == "HTTPS POST failed: -118 (DNS resolve failed or host unreachable; getaddrinfo=-2 errno=113 dns_timeout_ms=15000)");
+  REQUIRE(capture.lastError == "HTTPS POST failed: -113 (DNS resolve failed or host unreachable; getaddrinfo=-2 errno=113 dns_timeout_ms=15000)");
 }
