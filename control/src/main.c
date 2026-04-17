@@ -72,6 +72,12 @@ int main(void)
 
     control_app_log_ipv4_address(pppIface);
 
+    ret = conn_mgr_if_disconnect(pppIface);
+    if (ret != 0) {
+        LOG_ERR("conn_mgr_if_disconnect failed: %d", ret);
+        return 0;
+    }
+    
     while (1) {
         k_sleep(K_FOREVER);
     }
