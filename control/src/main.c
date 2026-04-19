@@ -12,6 +12,7 @@
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/net_ip.h>
 #include <zephyr/net/net_mgmt.h>
+#include <zephyr/net/ppp.h>
 #include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
 
@@ -24,6 +25,9 @@ LOG_MODULE_REGISTER(control_app, LOG_LEVEL_INF);
 #define CONTROL_HTTP_TIMEOUT_MS (180 * MSEC_PER_SEC)
 #define CONTROL_HTTP_CHUNK_SIZE 1024U
 #define CONTROL_HTTP_RESPONSE_PREVIEW_LEN 160U
+#define CONTROL_PPP_CONNECT_TIMEOUT K_SECONDS(MODEM_LINK_DEFAULT_L4_TIMEOUT_MS / 1000)
+#define CONTROL_PPP_DISCONNECT_TIMEOUT K_SECONDS(30)
+#define CONTROL_PPP_POLL_INTERVAL K_MSEC(250)
 
 struct control_http_context {
     unsigned int http_status_code;
@@ -34,6 +38,178 @@ struct control_http_context {
     size_t preview_len;
     char response_preview[CONTROL_HTTP_RESPONSE_PREVIEW_LEN + 1U];
 };
+
+static K_SEM_DEFINE(controlAppConnectedSem, 0, 1);
+static K_SEM_DEFINE(controlAppDisconnectedSem, 0, 1);
+static struct net_mgmt_event_callback controlAppNetCbL2;
+static struct net_mgmt_event_callback controlAppNetCbL3;
+static struct net_mgmt_event_callback controlAppNetCbL4;
+static struct net_if *controlAppIface;
+static bool controlAppPppRunning;
+static bool controlAppIpv4Ready;
+static bool controlAppL4Ready;
+static bool controlAppDnsReady;
+
+static const char *control_app_net_event_name(uint64_t mgmtEvent)
+{
+    switch (mgmtEvent) {
+    case NET_EVENT_PPP_PHASE_RUNNING:
+        return "NET_EVENT_PPP_PHASE_RUNNING";
+    case NET_EVENT_IPV4_ADDR_ADD:
+        return "NET_EVENT_IPV4_ADDR_ADD";
+    case NET_EVENT_DNS_SERVER_ADD:
+        return "NET_EVENT_DNS_SERVER_ADD";
+    case NET_EVENT_L4_CONNECTED:
+        return "NET_EVENT_L4_CONNECTED";
+    case NET_EVENT_L4_DISCONNECTED:
+        return "NET_EVENT_L4_DISCONNECTED";
+    case NET_EVENT_PPP_CARRIER_OFF:
+        return "NET_EVENT_PPP_CARRIER_OFF";
+    case NET_EVENT_PPP_PHASE_DEAD:
+        return "NET_EVENT_PPP_PHASE_DEAD";
+    default:
+        return "NET_EVENT_UNKNOWN";
+    }
+}
+
+static void control_app_drain_sem(struct k_sem *sem)
+{
+    while (k_sem_take(sem, K_NO_WAIT) == 0) {
+    }
+}
+
+static void control_app_reset_ready_state(void)
+{
+    controlAppPppRunning = false;
+    controlAppIpv4Ready = false;
+    controlAppL4Ready = false;
+    controlAppDnsReady = false;
+}
+
+static void control_app_net_event_handler(struct net_mgmt_event_callback *cb,
+                                          uint64_t mgmtEvent,
+                                          struct net_if *iface)
+{
+    ARG_UNUSED(cb);
+
+    if ((controlAppIface != NULL) && (iface != NULL) && (iface != controlAppIface)) {
+        return;
+    }
+
+    LOG_INF("Network event: %s 0x%" PRIx64,
+            control_app_net_event_name(mgmtEvent),
+            mgmtEvent);
+
+    switch (mgmtEvent) {
+    case NET_EVENT_PPP_PHASE_RUNNING:
+        controlAppPppRunning = true;
+        break;
+    case NET_EVENT_IPV4_ADDR_ADD:
+        controlAppIpv4Ready = true;
+        break;
+    case NET_EVENT_DNS_SERVER_ADD:
+        controlAppDnsReady = true;
+        break;
+    case NET_EVENT_L4_CONNECTED:
+        controlAppL4Ready = true;
+        break;
+    case NET_EVENT_L4_DISCONNECTED:
+    case NET_EVENT_PPP_CARRIER_OFF:
+    case NET_EVENT_PPP_PHASE_DEAD:
+        control_app_reset_ready_state();
+        k_sem_give(&controlAppDisconnectedSem);
+        return;
+    default:
+        return;
+    }
+
+    if (controlAppPppRunning && (controlAppIpv4Ready || controlAppL4Ready)) {
+        if (iface != NULL) {
+            net_if_set_default(iface);
+        }
+
+        k_sem_give(&controlAppConnectedSem);
+    }
+}
+
+static void control_app_register_net_events(struct net_if *pppIface)
+{
+    static bool callbacksRegistered;
+
+    controlAppIface = pppIface;
+
+    if (callbacksRegistered) {
+        return;
+    }
+
+    net_mgmt_init_event_callback(&controlAppNetCbL2,
+                                 control_app_net_event_handler,
+                                 NET_EVENT_PPP_PHASE_RUNNING |
+                                 NET_EVENT_PPP_CARRIER_OFF |
+                                 NET_EVENT_PPP_PHASE_DEAD);
+    net_mgmt_add_event_callback(&controlAppNetCbL2);
+
+    net_mgmt_init_event_callback(&controlAppNetCbL3,
+                                 control_app_net_event_handler,
+                                 NET_EVENT_IPV4_ADDR_ADD |
+                                 NET_EVENT_DNS_SERVER_ADD);
+    net_mgmt_add_event_callback(&controlAppNetCbL3);
+
+    net_mgmt_init_event_callback(&controlAppNetCbL4,
+                                 control_app_net_event_handler,
+                                 NET_EVENT_L4_CONNECTED |
+                                 NET_EVENT_L4_DISCONNECTED);
+    net_mgmt_add_event_callback(&controlAppNetCbL4);
+
+    callbacksRegistered = true;
+}
+
+static int control_app_connect_ppp(struct net_if *pppIface)
+{
+    int ret;
+
+    control_app_reset_ready_state();
+    control_app_drain_sem(&controlAppConnectedSem);
+
+    ret = conn_mgr_if_connect(pppIface);
+    if (ret != 0) {
+        LOG_ERR("conn_mgr_if_connect failed: %d", ret);
+        return ret;
+    }
+
+    LOG_INF("Waiting for PPP ready event...");
+    ret = k_sem_take(&controlAppConnectedSem, CONTROL_PPP_CONNECT_TIMEOUT);
+    if (ret != 0) {
+        LOG_ERR("Timed out waiting for PPP ready event: %d", ret);
+        return ret;
+    }
+
+    LOG_INF("PPP connected");
+    return 0;
+}
+
+static int control_app_disconnect_ppp(struct net_if *pppIface)
+{
+    int ret;
+
+    control_app_drain_sem(&controlAppDisconnectedSem);
+
+    ret = conn_mgr_if_disconnect(pppIface);
+    if (ret != 0) {
+        LOG_ERR("conn_mgr_if_disconnect failed: %d", ret);
+        return ret;
+    }
+
+    LOG_INF("Waiting for PPP teardown event...");
+    ret = k_sem_take(&controlAppDisconnectedSem, CONTROL_PPP_DISCONNECT_TIMEOUT);
+    if (ret != 0) {
+        LOG_ERR("Timed out waiting for PPP teardown: %d", ret);
+        return ret;
+    }
+
+    LOG_INF("PPP disconnected");
+    return 0;
+}
 
 static bool control_app_http_status_is_success(unsigned int status_code)
 {
@@ -512,7 +688,7 @@ static void control_app_log_ipv4_address(struct net_if *iface)
 int main(void)
 {
     struct net_if *pppIface = NULL;
-    uint64_t raisedEvent = 0U;
+    unsigned int cycle;
     int ret;
 
     LOG_INF("Control app boot: connecting through conn_mgr");
@@ -523,48 +699,37 @@ int main(void)
         return 0;
     }
 
+    control_app_register_net_events(pppIface);
+
     ret = conn_mgr_if_set_timeout(pppIface, MODEM_LINK_DEFAULT_L4_TIMEOUT_MS / MSEC_PER_SEC);
     if (ret != 0) {
         LOG_WRN("conn_mgr_if_set_timeout failed: %d", ret);
     }
 
-    ret = conn_mgr_if_connect(pppIface);
-    if (ret != 0) {
-        LOG_ERR("conn_mgr_if_connect failed: %d", ret);
-        return 0;
+    for (cycle = 1U; cycle <= 2U; cycle++) {
+        if (cycle > 1U) {
+            LOG_INF("=========== %uth connection ===================", cycle);
+        }
+
+        ret = control_app_connect_ppp(pppIface);
+        if (ret != 0) {
+            return 0;
+        }
+
+        control_app_log_ipv4_address(pppIface);
+        net_if_set_default(pppIface);
+
+        ret = control_app_send_https_upload();
+        if (ret != 0) {
+            LOG_ERR("HTTPS upload failed: %d", ret);
+        }
+
+        ret = control_app_disconnect_ppp(pppIface);
+        if (ret != 0) {
+            return 0;
+        }
     }
 
-    LOG_INF("Waiting for NET_EVENT_L4_CONNECTED...");
-    ret = net_mgmt_event_wait_on_iface(pppIface,
-                                                                         NET_EVENT_L4_CONNECTED,
-                                                                         &raisedEvent,
-                                                                         NULL,
-                                                                         NULL,
-                                                                         K_MSEC(MODEM_LINK_DEFAULT_L4_TIMEOUT_MS));
-    if (ret != 0) {
-        LOG_ERR("Timed out waiting for PPP L4 connectivity: %d", ret);
-        return 0;
-    }
-
-    LOG_INF("PPP connected, event=0x%" PRIx64, raisedEvent);
-
-    control_app_log_ipv4_address(pppIface);
-
-    net_if_set_default(pppIface);
-
-    ret = control_app_send_https_upload();
-    if (ret != 0) {
-        LOG_ERR("HTTPS upload failed: %d", ret);
-    }
-
-    ret = conn_mgr_if_disconnect(pppIface);
-    if (ret != 0) {
-        LOG_ERR("conn_mgr_if_disconnect failed: %d", ret);
-        return 0;
-    }
-
-    LOG_INF("PPP disconnected");
-    
     while (1) {
         k_sleep(K_FOREVER);
     }
