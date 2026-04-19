@@ -53,6 +53,12 @@ target_sources(app PRIVATE
   ${CONTROL_SRC_DIR}/main.c
 )
 
+generate_inc_file_for_target(
+    app
+    ${CMAKE_CURRENT_SOURCE_DIR}/one_month.txt
+    one_month_txt.inc
+)
+
 # Platform units
 target_link_libraries(app PRIVATE platform_src_modem_board_obj)
 target_link_libraries(app PRIVATE platform_src_modem_at_obj)

@@ -26,17 +26,30 @@ config CONTROL_SERVER_HOST
 	string "Verified HTTPS server hostname"
 	default ""
 	help
-	  DNS hostname used for TLS SNI and HTTP Host when the modem shell HTTPS
-	  POST command connects to a raw IPv4 address.
+	  DNS hostname used for TLS SNI, DNS lookup, and the HTTP Host header
+	  when the control application sends its HTTPS upload request.
+
+config CONTROL_SERVER_URL
+	string "HTTPS server URL path"
+	default "/gus.asmx/dev"
+	help
+	  HTTP target path used by the control application upload request.
+
+config CONTROL_SERVER_PORT
+	int "HTTPS server TCP port"
+	range 1 65535
+	default 443
+	help
+	  TCP port used by the control application upload request.
 
 config CONTROL_TLS_SERVER_CA_CERT_PEM
 	string "HTTPS POST root CA certificate"
 	depends on NET_SOCKETS_SOCKOPT_TLS
 	default ""
 	help
-	  PEM-encoded root CA certificate used by the modem shell HTTPS POST
-	  command. Keep the local-only value in control/prj.secrets.conf and
-	  encode line breaks with escaped newlines.
+	  PEM-encoded root CA certificate used by the control application HTTPS
+	  upload request. Keep the local-only value in control/prj.secrets.conf
+	  and encode line breaks with escaped newlines.
 
 endmenu
 
